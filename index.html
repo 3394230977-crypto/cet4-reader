@@ -12,7 +12,7 @@
     <header class="topbar">
       <div class="brand">
         <div class="brand-title">CET-4 精读划词助手</div>
-        <div class="brand-sub">查词 · 整句翻译 · 今日生词 · 错题复盘 · 阅读计时</div>
+        <div class="brand-sub">四/六级词典 · 上下文整句翻译 · 今日生词 · 错题复盘 · 阅读计时</div>
       </div>
 
       <div class="top-controls">
@@ -72,7 +72,7 @@
             <div class="term-label">Selected word / phrase</div>
             <div id="term" class="term">选一个词</div>
             <div id="translation" class="translation">中文释义会显示在这里</div>
-            <div id="status" class="status">双击文章里的单词即可直接查词。</div>
+            <div id="status" class="status">单词优先使用四/六级词典；整句在支持的 Chrome 桌面版中优先使用浏览器内置翻译。</div>
 
             <div id="contextCard" class="context-card hidden">
               <div class="context-label">所在句子</div>
@@ -204,6 +204,7 @@
     </form>
   </dialog>
 
+  <script src="translation-engine.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
