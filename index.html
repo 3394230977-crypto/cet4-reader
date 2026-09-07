@@ -3,144 +3,35 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="CET-4 四级英语精读划词翻译工具：点击单词、拖选短语即可查看中文翻译，支持文章保存和生词本。" />
+  <meta name="description" content="CET-4 四级精读助手：划词翻译、整句翻译、今日查词、生词本、错题分类、文章分类和阅读计时器。" />
   <title>CET-4 精读划词助手</title>
-  <style>
-    :root {
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --panel-soft: #f8fafc;
-      --text: #172033;
-      --muted: #778197;
-      --border: #e3e7ef;
-      --accent: #3157d5;
-      --accent-soft: #eef2ff;
-      --accent-strong: #2445b5;
-      --good: #16794c;
-      --danger: #b33a3a;
-      --shadow: 0 12px 34px rgba(27, 38, 70, .08);
-      --reader-font-size: 19px;
-    }
-    * { box-sizing: border-box; }
-    html, body { margin: 0; min-height: 100%; font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
-    body { overflow: hidden; }
-    button, input, textarea, select { font: inherit; }
-    button { cursor: pointer; }
-    .app { height: 100vh; display: grid; grid-template-rows: auto 1fr; }
-    .topbar { display: flex; align-items: center; gap: 16px; padding: 13px 20px; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--border); z-index: 5; }
-    .brand { min-width: 220px; }
-    .brand-title { font-size: 17px; font-weight: 760; letter-spacing: .01em; }
-    .brand-sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
-    .top-controls { margin-left: auto; display: flex; align-items: center; gap: 8px; min-width: 0; }
-    .article-select { height: 38px; max-width: 260px; min-width: 150px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); padding: 0 10px; color: var(--text); outline: none; }
-    .btn { height: 38px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel); color: var(--text); padding: 0 12px; transition: .15s ease; }
-    .btn:hover { border-color: #c8d0df; background: #fbfcfe; }
-    .btn.primary { background: var(--accent); color: white; border-color: var(--accent); }
-    .btn.primary:hover { background: var(--accent-strong); }
-    .btn.icon { width: 38px; padding: 0; font-weight: 700; }
-    .workspace { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 350px; gap: 14px; padding: 14px; }
-    .reader-shell, .lookup-shell { min-height: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 16px; box-shadow: var(--shadow); overflow: hidden; }
-    .reader-shell { display: grid; grid-template-rows: auto 1fr; }
-    .reader-head { padding: 16px 24px 13px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
-    .reader-title-wrap { min-width: 0; }
-    .reader-title { font-size: 18px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .reader-meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
-    .reader-hint { margin-left: auto; color: var(--muted); font-size: 12px; white-space: nowrap; }
-    .reader-scroll { min-height: 0; overflow-y: auto; padding: 30px clamp(22px, 5vw, 72px) 70px; scroll-behavior: smooth; }
-    .article { max-width: 910px; margin: 0 auto; font-family: Georgia, "Times New Roman", serif; font-size: var(--reader-font-size); line-height: 1.95; letter-spacing: .006em; color: #20293a; }
-    .article p { margin: 0 0 1.45em; }
-    .word { border-radius: 4px; padding: 1px 0; transition: background .12s ease, color .12s ease; }
-    .word:hover { background: #f0f3ff; color: #1f49c0; }
-    .word.active { background: #dfe7ff; color: #173ca6; }
-    .empty { max-width: 620px; margin: 14vh auto 0; text-align: center; color: var(--muted); font-size: 14px; line-height: 1.8; }
-    .empty strong { display: block; color: var(--text); font-size: 21px; margin-bottom: 6px; }
-    .lookup-shell { display: grid; grid-template-rows: auto auto 1fr; }
-    .lookup-top { padding: 16px 16px 12px; border-bottom: 1px solid var(--border); }
-    .search-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-    .search-input { min-width: 0; height: 40px; border: 1px solid var(--border); border-radius: 10px; padding: 0 11px; outline: none; background: var(--panel-soft); color: var(--text); }
-    .search-input:focus { border-color: #9fb1ef; box-shadow: 0 0 0 3px #edf1ff; }
-    .tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 8px; gap: 6px; border-bottom: 1px solid var(--border); }
-    .tab { height: 36px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; }
-    .tab.active { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
-    .lookup-scroll { min-height: 0; overflow-y: auto; padding: 18px; }
-    .term-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-    .term { margin-top: 5px; font-size: 28px; line-height: 1.2; font-weight: 780; overflow-wrap: anywhere; }
-    .translation { margin-top: 18px; font-size: 20px; line-height: 1.55; font-weight: 650; }
-    .status { margin-top: 8px; min-height: 18px; color: var(--muted); font-size: 12px; }
-    .context { margin-top: 20px; padding: 12px 13px; border-radius: 11px; background: var(--panel-soft); color: #566176; font-family: Georgia, "Times New Roman", serif; font-size: 14px; line-height: 1.65; }
-    .action-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
-    .small-btn { height: 36px; border: 1px solid var(--border); border-radius: 9px; background: white; color: var(--text); padding: 0 10px; }
-    .small-btn.saved { border-color: #b9ddcc; background: #edf9f3; color: var(--good); }
-    .section-title { margin: 24px 0 10px; font-size: 12px; color: var(--muted); font-weight: 700; letter-spacing: .04em; }
-    .history, .vocab-list { display: grid; gap: 7px; }
-    .history-item, .vocab-item { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 10px 11px; cursor: pointer; }
-    .history-item:hover, .vocab-item:hover { background: var(--panel-soft); }
-    .history-en, .vocab-en { font-weight: 700; font-size: 14px; overflow-wrap: anywhere; }
-    .history-zh, .vocab-zh { color: var(--muted); font-size: 13px; margin-top: 3px; line-height: 1.45; }
-    .vocab-tools { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 12px; }
-    .count-pill { font-size: 12px; color: var(--muted); }
-    .loading::after { content: ""; display: inline-block; width: 12px; height: 12px; margin-left: 8px; border: 2px solid #d6dcec; border-top-color: var(--accent); border-radius: 50%; vertical-align: -1px; animation: spin .7s linear infinite; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    dialog { border: 0; padding: 0; border-radius: 16px; width: min(760px, calc(100vw - 28px)); box-shadow: 0 30px 80px rgba(24,33,56,.25); background: var(--panel); color: var(--text); }
-    dialog::backdrop { background: rgba(19,27,44,.44); backdrop-filter: blur(2px); }
-    .dialog-inner { padding: 22px; }
-    .dialog-title { font-size: 20px; font-weight: 760; }
-    .dialog-desc { color: var(--muted); font-size: 13px; margin-top: 5px; line-height: 1.6; }
-    .form-label { display: block; font-size: 12px; color: var(--muted); margin: 16px 0 6px; }
-    .text-input, .article-input { width: 100%; border: 1px solid var(--border); border-radius: 10px; outline: none; background: var(--panel-soft); color: var(--text); }
-    .text-input { height: 42px; padding: 0 11px; }
-    .article-input { min-height: 330px; max-height: 50vh; resize: vertical; padding: 12px; line-height: 1.65; }
-    .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
-    .notice { margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.55; }
-    .delete-btn { border: 0; background: transparent; color: var(--danger); font-size: 12px; padding: 6px; }
-    .hidden { display: none !important; }
-    @media (max-width: 900px) {
-      body { overflow: auto; }
-      .app { height: auto; min-height: 100vh; grid-template-rows: auto auto; }
-      .topbar { flex-wrap: wrap; }
-      .brand { min-width: 0; }
-      .top-controls { width: 100%; margin-left: 0; }
-      .article-select { flex: 1; max-width: none; }
-      .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(55vh, 620px) minmax(420px, auto); }
-      .reader-shell { min-height: 55vh; }
-      .lookup-shell { min-height: 420px; }
-      .lookup-scroll { max-height: 55vh; }
-      .reader-hint { display: none; }
-    }
-    @media (max-width: 520px) {
-      .topbar { padding: 11px 12px; gap: 10px; }
-      .brand-sub { display: none; }
-      .top-controls { gap: 6px; }
-      .btn { padding: 0 9px; }
-      .workspace { padding: 8px; gap: 8px; }
-      .reader-head { padding: 13px 15px 10px; }
-      .reader-scroll { padding: 22px 18px 50px; }
-      .lookup-shell, .reader-shell { border-radius: 13px; }
-      .article { line-height: 1.85; }
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg:#11151d; --panel:#171c26; --panel-soft:#1d2430; --text:#e8edf7; --muted:#9aa5b8; --border:#2a3342; --accent:#7793ff; --accent-soft:#202c51; --accent-strong:#6e8afa; --shadow:none; }
-      .topbar { background: rgba(23,28,38,.97); }
-      .article { color:#e3e8f2; }
-      .word:hover { background:#253258; color:#b9c8ff; }
-      .word.active { background:#304275; color:#d8e0ff; }
-      .small-btn, .history-item, .vocab-item { background:var(--panel); color:var(--text); }
-      .context { color:#b5bfd0; }
-    }
-  </style>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
       <div class="brand">
         <div class="brand-title">CET-4 精读划词助手</div>
-        <div class="brand-sub">点击单词 · 拖选短语 · 文章与生词自动保存在本机</div>
+        <div class="brand-sub">查词 · 整句翻译 · 今日生词 · 错题复盘 · 阅读计时</div>
       </div>
+
       <div class="top-controls">
-        <select id="articleSelect" class="article-select" aria-label="选择文章"></select>
+        <select id="articleSelect" class="select article-select" aria-label="选择文章"></select>
         <button id="importBtn" class="btn primary" type="button">导入文章</button>
+        <button id="editBtn" class="btn" type="button">编辑/分类</button>
         <button id="fontDown" class="btn icon" type="button" title="减小字号">A−</button>
         <button id="fontUp" class="btn icon" type="button" title="增大字号">A+</button>
+
+        <div class="timer-box" aria-label="四级阅读计时器">
+          <select id="timerMode" class="select timer-mode" title="选择计时时长">
+            <option value="600">10分钟</option>
+            <option value="900">15分钟</option>
+            <option value="2400">40分钟</option>
+          </select>
+          <div id="timerDisplay" class="timer-display">10:00</div>
+          <button id="timerStart" class="btn" type="button">开始</button>
+          <button id="timerReset" class="btn icon" type="button" title="重置计时">↺</button>
+        </div>
       </div>
     </header>
 
@@ -151,45 +42,94 @@
             <div id="readerTitle" class="reader-title">尚未导入文章</div>
             <div id="readerMeta" class="reader-meta">导入四级阅读后即可开始精读</div>
           </div>
-          <div class="reader-hint">单击词汇查词；拖选多个词查短语</div>
+          <div class="reader-actions">
+            <span class="hint">单击/双击词汇查词 · 拖选查短语</span>
+            <button id="markReaderBtn" class="small-btn warn" type="button">记错题/难句</button>
+          </div>
         </div>
         <div id="readerScroll" class="reader-scroll">
           <article id="article" class="article"></article>
         </div>
       </section>
 
-      <aside class="lookup-shell">
+      <aside class="side-shell">
         <div class="lookup-top">
           <form id="searchForm" class="search-row">
-            <input id="searchInput" class="search-input" autocomplete="off" placeholder="直接输入单词或短语…" aria-label="查词" />
+            <input id="searchInput" class="input search-input" autocomplete="off" placeholder="输入单词、短语或句子…" aria-label="查词" />
             <button class="btn primary" type="submit">查询</button>
           </form>
         </div>
+
         <div class="tabs">
           <button id="lookupTab" class="tab active" type="button">查词</button>
-          <button id="vocabTab" class="tab" type="button">生词本 <span id="vocabCount"></span></button>
+          <button id="todayTab" class="tab" type="button">今日</button>
+          <button id="vocabTab" class="tab" type="button">生词 <span id="vocabCount"></span></button>
+          <button id="mistakeTab" class="tab" type="button">错题 <span id="mistakeCount"></span></button>
         </div>
-        <div id="lookupScroll" class="lookup-scroll">
+
+        <div id="sideScroll" class="side-scroll">
           <section id="lookupPanel">
             <div class="term-label">Selected word / phrase</div>
             <div id="term" class="term">选一个词</div>
-            <div id="translation" class="translation">中文释义会固定显示在这里</div>
-            <div id="status" class="status">文章在左侧独立滚动，因此不需要为了查词来回翻页面。</div>
-            <div id="context" class="context hidden"></div>
-            <div class="action-row">
-              <button id="speakBtn" class="small-btn" type="button">🔊 发音</button>
-              <button id="saveBtn" class="small-btn" type="button">＋ 加入生词本</button>
+            <div id="translation" class="translation">中文释义会显示在这里</div>
+            <div id="status" class="status">双击文章里的单词即可直接查词。</div>
+
+            <div id="contextCard" class="context-card hidden">
+              <div class="context-label">所在句子</div>
+              <div id="context" class="context"></div>
+              <div id="sentenceTranslation" class="sentence-translation hidden">
+                <div class="context-label">整句翻译</div>
+                <div id="sentenceTranslationText"></div>
+              </div>
             </div>
+
+            <div class="action-row">
+              <button id="speakBtn" class="small-btn" type="button" disabled>🔊 发音</button>
+              <button id="saveBtn" class="small-btn" type="button" disabled>＋ 加入生词本</button>
+              <button id="translateSentenceBtn" class="small-btn" type="button" disabled>译整句</button>
+              <button id="markMistakeBtn" class="small-btn warn" type="button" disabled>记错题/难句</button>
+            </div>
+
             <div class="section-title">最近查询</div>
-            <div id="history" class="history"></div>
+            <div id="history" class="list"></div>
+          </section>
+
+          <section id="todayPanel" class="hidden">
+            <div class="panel-tools">
+              <span id="todaySummary" class="count-pill">今天还没有查词</span>
+            </div>
+            <div class="notice">这里会自动记录今天查过的单词和短语，不需要手动点“加入生词本”。真正需要长期背的词再放进“生词本”。</div>
+            <div class="section-title">今天的查询记录</div>
+            <div id="todayList" class="list"></div>
           </section>
 
           <section id="vocabPanel" class="hidden">
-            <div class="vocab-tools">
-              <span id="vocabSummary" class="count-pill">0 个生词</span>
+            <div class="panel-tools">
+              <span id="vocabSummary" class="count-pill">0 个已收藏生词</span>
               <button id="clearVocab" class="delete-btn" type="button">清空生词本</button>
             </div>
-            <div id="vocabList" class="vocab-list"></div>
+            <div id="vocabList" class="list"></div>
+          </section>
+
+          <section id="mistakePanel" class="hidden">
+            <div class="panel-tools">
+              <span id="mistakeSummary" class="count-pill">0 条错题/难句记录</span>
+              <button id="clearMistakes" class="delete-btn" type="button">清空记录</button>
+            </div>
+            <div class="filter-row">
+              <select id="mistakeFilter" class="mini-select">
+                <option value="全部">全部类型</option>
+                <option value="词汇">词汇</option>
+                <option value="长难句">长难句</option>
+                <option value="定位">定位</option>
+                <option value="推理">推理</option>
+                <option value="主旨">主旨</option>
+                <option value="选项辨析">选项辨析</option>
+                <option value="其他">其他</option>
+              </select>
+              <span class="chip">自动关联文章</span>
+            </div>
+            <div id="mistakeList" class="list"></div>
           </section>
         </div>
       </aside>
@@ -198,454 +138,72 @@
 
   <dialog id="articleDialog">
     <form id="articleForm" class="dialog-inner" method="dialog">
-      <div class="dialog-title">导入一篇英语文章</div>
-      <div class="dialog-desc">以后换新的四级阅读时直接粘贴进来即可。文章会保存在当前浏览器，不需要重复导入。</div>
-      <label class="form-label" for="articleTitleInput">文章名称</label>
-      <input id="articleTitleInput" class="text-input" maxlength="80" placeholder="例如：2024年12月四级仔细阅读 Passage One" />
+      <div id="articleDialogTitle" class="dialog-title">导入一篇英语文章</div>
+      <div class="dialog-desc">文章、分类和阅读进度会保存在当前浏览器。旧版已经导入的文章也会继续保留。</div>
+
+      <div class="form-grid">
+        <div>
+          <label class="form-label" for="articleTitleInput">文章名称</label>
+          <input id="articleTitleInput" class="text-input" maxlength="100" placeholder="例如：2024年12月四级 Passage One" />
+        </div>
+        <div>
+          <label class="form-label" for="articleCategoryInput">文章分类</label>
+          <select id="articleCategoryInput" class="text-input">
+            <option value="仔细阅读">仔细阅读</option>
+            <option value="长篇匹配">长篇匹配</option>
+            <option value="选词填空">选词填空</option>
+            <option value="听力原文">听力原文</option>
+            <option value="作文/翻译">作文/翻译</option>
+            <option value="其他">其他</option>
+            <option value="未分类">未分类</option>
+          </select>
+        </div>
+      </div>
+
+      <label class="form-label" for="articleSourceInput">来源/备注（可选）</label>
+      <input id="articleSourceInput" class="text-input" maxlength="100" placeholder="例如：2024年12月第一套 / Passage One" />
+
       <label class="form-label" for="articleTextInput">英文原文</label>
       <textarea id="articleTextInput" class="article-input" placeholder="在这里粘贴英文文章……"></textarea>
-      <div class="notice">提示：为了真正练阅读，本站默认只在你主动点击或选择时显示中文，不提供整篇中英对照。</div>
+
+      <div class="notice">建议只在需要时点词或“译整句”，不要直接整篇翻译，这样更适合四级阅读训练。</div>
       <div class="dialog-actions">
+        <button id="deleteArticleBtn" class="delete-btn hidden" type="button">删除当前文章</button>
         <button id="cancelDialog" class="btn" type="button">取消</button>
-        <button class="btn primary" type="submit">保存并开始精读</button>
+        <button class="btn primary" type="submit">保存</button>
       </div>
     </form>
   </dialog>
 
-  <script>
-    (() => {
-      'use strict';
+  <dialog id="mistakeDialog">
+    <form id="mistakeForm" class="dialog-inner" method="dialog">
+      <div class="dialog-title">记录错题 / 难句</div>
+      <div class="dialog-desc">把“为什么错”分类，比单纯抄答案更方便后面复盘。</div>
 
-      const KEYS = {
-        articles: 'cet4_reader_articles_v2',
-        active: 'cet4_reader_active_v2',
-        vocab: 'cet4_reader_vocab_v2',
-        history: 'cet4_reader_history_v2',
-        cache: 'cet4_reader_translation_cache_v2',
-        font: 'cet4_reader_font_v2'
-      };
+      <label class="form-label" for="mistakeTextInput">记录内容</label>
+      <textarea id="mistakeTextInput" class="note-input" readonly></textarea>
 
-      const $ = (id) => document.getElementById(id);
-      const articleEl = $('article');
-      const articleSelect = $('articleSelect');
-      const readerTitle = $('readerTitle');
-      const readerMeta = $('readerMeta');
-      const dialog = $('articleDialog');
-      const titleInput = $('articleTitleInput');
-      const textInput = $('articleTextInput');
-      const termEl = $('term');
-      const translationEl = $('translation');
-      const statusEl = $('status');
-      const contextEl = $('context');
-      const saveBtn = $('saveBtn');
-      const speakBtn = $('speakBtn');
-      const searchInput = $('searchInput');
-      const historyEl = $('history');
-      const vocabList = $('vocabList');
-      const vocabCount = $('vocabCount');
-      const vocabSummary = $('vocabSummary');
-      const lookupPanel = $('lookupPanel');
-      const vocabPanel = $('vocabPanel');
-      const lookupTab = $('lookupTab');
-      const vocabTab = $('vocabTab');
+      <label class="form-label" for="mistakeCategoryInput">错误类型</label>
+      <select id="mistakeCategoryInput" class="text-input">
+        <option value="词汇">词汇</option>
+        <option value="长难句" selected>长难句</option>
+        <option value="定位">定位</option>
+        <option value="推理">推理</option>
+        <option value="主旨">主旨</option>
+        <option value="选项辨析">选项辨析</option>
+        <option value="其他">其他</option>
+      </select>
 
-      let articles = readJSON(KEYS.articles, []);
-      let vocab = readJSON(KEYS.vocab, []);
-      let history = readJSON(KEYS.history, []);
-      let cache = readJSON(KEYS.cache, {});
-      let activeId = localStorage.getItem(KEYS.active) || '';
-      let currentLookup = null;
-      let activeWordSpan = null;
-      let requestToken = 0;
-      let fontSize = Number(localStorage.getItem(KEYS.font)) || 19;
+      <label class="form-label" for="mistakeNoteInput">复盘备注（可选）</label>
+      <textarea id="mistakeNoteInput" class="note-input" placeholder="例如：认识单词但没看懂否定关系；定位到了却被同义替换干扰……"></textarea>
 
-      document.documentElement.style.setProperty('--reader-font-size', fontSize + 'px');
+      <div class="dialog-actions">
+        <button id="cancelMistakeDialog" class="btn" type="button">取消</button>
+        <button class="btn primary" type="submit">保存到错题本</button>
+      </div>
+    </form>
+  </dialog>
 
-      function readJSON(key, fallback) {
-        try {
-          const raw = localStorage.getItem(key);
-          return raw ? JSON.parse(raw) : fallback;
-        } catch (_) { return fallback; }
-      }
-
-      function writeJSON(key, value) {
-        try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
-      }
-
-      function uid() {
-        return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-      }
-
-      function normalizeTerm(value) {
-        return String(value || '')
-          .replace(/\s+/g, ' ')
-          .replace(/^[\s“”‘’'".,;:!?()\[\]{}—–-]+|[\s“”‘’'".,;:!?()\[\]{}—–-]+$/g, '')
-          .trim();
-      }
-
-      function safeText(text) {
-        return String(text == null ? '' : text);
-      }
-
-      function countWords(text) {
-        return (text.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*/g) || []).length;
-      }
-
-      function activeArticle() {
-        return articles.find(a => a.id === activeId) || null;
-      }
-
-      function refreshArticleSelect() {
-        articleSelect.innerHTML = '';
-        if (!articles.length) {
-          const option = document.createElement('option');
-          option.textContent = '暂无文章';
-          option.value = '';
-          articleSelect.appendChild(option);
-          articleSelect.disabled = true;
-          return;
-        }
-        articleSelect.disabled = false;
-        for (const item of articles) {
-          const option = document.createElement('option');
-          option.value = item.id;
-          option.textContent = item.title;
-          if (item.id === activeId) option.selected = true;
-          articleSelect.appendChild(option);
-        }
-      }
-
-      function renderActiveArticle() {
-        refreshArticleSelect();
-        const item = activeArticle();
-        articleEl.innerHTML = '';
-        activeWordSpan = null;
-
-        if (!item) {
-          readerTitle.textContent = '尚未导入文章';
-          readerMeta.textContent = '导入四级阅读后即可开始精读';
-          articleEl.innerHTML = '<div class="empty"><strong>把你的四级阅读放进来</strong>文章再长也只在左侧区域滚动。点击英文单词，右侧固定显示中文；拖选一串英文，还可以直接查短语。</div>';
-          return;
-        }
-
-        readerTitle.textContent = item.title;
-        const wc = countWords(item.text);
-        readerMeta.textContent = `${wc} 词 · 已自动保存在浏览器`;
-
-        const blocks = item.text
-          .replace(/\r\n/g, '\n')
-          .split(/\n\s*\n+/)
-          .map(s => s.trim())
-          .filter(Boolean);
-
-        const paragraphs = blocks.length ? blocks : [item.text.trim()];
-        for (const block of paragraphs) {
-          const p = document.createElement('p');
-          renderTokenized(block, p);
-          articleEl.appendChild(p);
-        }
-        $('readerScroll').scrollTop = 0;
-      }
-
-      function renderTokenized(text, parent) {
-        const tokens = text.match(/[A-Za-z]+(?:['’-][A-Za-z]+)*|[^A-Za-z]+/g) || [text];
-        for (const token of tokens) {
-          if (/^[A-Za-z]/.test(token)) {
-            const span = document.createElement('span');
-            span.className = 'word';
-            span.textContent = token;
-            span.dataset.word = token;
-            parent.appendChild(span);
-          } else {
-            parent.appendChild(document.createTextNode(token));
-          }
-        }
-      }
-
-      function getContext(node) {
-        const p = node && node.nodeType === Node.ELEMENT_NODE ? node.closest?.('p') : node?.parentElement?.closest?.('p');
-        if (!p) return '';
-        const text = p.textContent.replace(/\s+/g, ' ').trim();
-        return text.length > 360 ? text.slice(0, 357) + '…' : text;
-      }
-
-      function cacheKey(term) {
-        return term.toLowerCase();
-      }
-
-      async function translate(term, context = '', sourceSpan = null) {
-        term = normalizeTerm(term);
-        if (!term || !/[A-Za-z]/.test(term)) return;
-        if (term.length > 450) {
-          showLookup(term.slice(0, 120) + '…', '选择内容过长', '一次请选择一个单词、短语或较短句子。', context, false);
-          return;
-        }
-
-        if (activeWordSpan && activeWordSpan !== sourceSpan) activeWordSpan.classList.remove('active');
-        activeWordSpan = sourceSpan || null;
-        if (activeWordSpan) activeWordSpan.classList.add('active');
-
-        const key = cacheKey(term);
-        if (cache[key]) {
-          const hit = cache[key];
-          showLookup(term, hit.translation, '本地缓存 · 无需再次联网', context, true);
-          addHistory(term, hit.translation, context);
-          return;
-        }
-
-        const myToken = ++requestToken;
-        showLookup(term, '正在查询…', '连接在线翻译服务', context, false, true);
-
-        try {
-          const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(term) + '&langpair=en|zh-CN';
-          const response = await fetch(url, { method: 'GET' });
-          if (!response.ok) throw new Error('HTTP ' + response.status);
-          const data = await response.json();
-          if (myToken !== requestToken) return;
-          let translated = data && data.responseData ? safeText(data.responseData.translatedText).trim() : '';
-          if (!translated) throw new Error('empty translation');
-
-          cache[key] = { translation: translated, savedAt: Date.now() };
-          const cacheEntries = Object.entries(cache);
-          if (cacheEntries.length > 900) {
-            cacheEntries.sort((a,b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
-            cache = Object.fromEntries(cacheEntries.slice(0, 700));
-          }
-          writeJSON(KEYS.cache, cache);
-          showLookup(term, translated, '在线翻译 · 已缓存到本机', context, true);
-          addHistory(term, translated, context);
-        } catch (err) {
-          if (myToken !== requestToken) return;
-          showLookup(term, '暂时没有查到中文', '网络或翻译服务当前不可用，请稍后再试。已经查过的词仍可从本地缓存读取。', context, false);
-        }
-      }
-
-      function showLookup(term, translation, status, context, canSave, loading = false) {
-        switchTab('lookup');
-        currentLookup = { term, translation, context: context || '' };
-        termEl.textContent = term;
-        translationEl.textContent = translation;
-        translationEl.classList.toggle('loading', loading);
-        statusEl.textContent = status;
-        if (context) {
-          contextEl.textContent = context;
-          contextEl.classList.remove('hidden');
-        } else {
-          contextEl.classList.add('hidden');
-          contextEl.textContent = '';
-        }
-        speakBtn.disabled = !term || term === '选一个词';
-        saveBtn.disabled = !canSave;
-        updateSaveButton();
-        $('lookupScroll').scrollTop = 0;
-      }
-
-      function addHistory(term, translation, context) {
-        history = history.filter(x => x.term.toLowerCase() !== term.toLowerCase());
-        history.unshift({ term, translation, context: context || '', time: Date.now() });
-        history = history.slice(0, 12);
-        writeJSON(KEYS.history, history);
-        renderHistory();
-      }
-
-      function renderHistory() {
-        historyEl.innerHTML = '';
-        if (!history.length) {
-          historyEl.innerHTML = '<div class="status">还没有查询记录。</div>';
-          return;
-        }
-        for (const item of history.slice(0, 8)) {
-          const card = document.createElement('div');
-          card.className = 'history-item';
-          const en = document.createElement('div');
-          en.className = 'history-en';
-          en.textContent = item.term;
-          const zh = document.createElement('div');
-          zh.className = 'history-zh';
-          zh.textContent = item.translation;
-          card.append(en, zh);
-          card.addEventListener('click', () => showLookup(item.term, item.translation, '历史查询', item.context || '', true));
-          historyEl.appendChild(card);
-        }
-      }
-
-      function vocabHas(term) {
-        return vocab.some(x => x.term.toLowerCase() === String(term || '').toLowerCase());
-      }
-
-      function updateSaveButton() {
-        if (!currentLookup || saveBtn.disabled) {
-          saveBtn.classList.remove('saved');
-          saveBtn.textContent = '＋ 加入生词本';
-          return;
-        }
-        const saved = vocabHas(currentLookup.term);
-        saveBtn.classList.toggle('saved', saved);
-        saveBtn.textContent = saved ? '✓ 已加入生词本' : '＋ 加入生词本';
-      }
-
-      function toggleVocabCurrent() {
-        if (!currentLookup || saveBtn.disabled) return;
-        const key = currentLookup.term.toLowerCase();
-        const idx = vocab.findIndex(x => x.term.toLowerCase() === key);
-        if (idx >= 0) {
-          vocab.splice(idx, 1);
-        } else {
-          vocab.unshift({ ...currentLookup, time: Date.now(), article: activeArticle()?.title || '' });
-        }
-        writeJSON(KEYS.vocab, vocab);
-        renderVocab();
-        updateSaveButton();
-      }
-
-      function renderVocab() {
-        vocabCount.textContent = vocab.length ? `(${vocab.length})` : '';
-        vocabSummary.textContent = `${vocab.length} 个生词`;
-        vocabList.innerHTML = '';
-        if (!vocab.length) {
-          vocabList.innerHTML = '<div class="status">生词本还是空的。查到需要记忆的词后点击“加入生词本”。</div>';
-          return;
-        }
-        for (const item of vocab) {
-          const card = document.createElement('div');
-          card.className = 'vocab-item';
-          const en = document.createElement('div');
-          en.className = 'vocab-en';
-          en.textContent = item.term;
-          const zh = document.createElement('div');
-          zh.className = 'vocab-zh';
-          zh.textContent = item.translation;
-          card.append(en, zh);
-          card.addEventListener('click', () => showLookup(item.term, item.translation, item.article ? `生词本 · ${item.article}` : '生词本', item.context || '', true));
-          vocabList.appendChild(card);
-        }
-      }
-
-      function switchTab(tab) {
-        const isLookup = tab === 'lookup';
-        lookupPanel.classList.toggle('hidden', !isLookup);
-        vocabPanel.classList.toggle('hidden', isLookup);
-        lookupTab.classList.toggle('active', isLookup);
-        vocabTab.classList.toggle('active', !isLookup);
-      }
-
-      function openImport(prefill = false) {
-        const item = prefill ? activeArticle() : null;
-        titleInput.value = item ? item.title : '';
-        textInput.value = item ? item.text : '';
-        dialog.showModal();
-        setTimeout(() => (item ? textInput : titleInput).focus(), 40);
-      }
-
-      function saveArticle() {
-        const text = textInput.value.trim();
-        let title = titleInput.value.trim();
-        if (!text) {
-          alert('请先粘贴英文文章。');
-          return false;
-        }
-        if (!title) title = '英语精读 ' + new Date().toLocaleDateString('zh-CN');
-        const item = { id: uid(), title, text, createdAt: Date.now() };
-        articles.unshift(item);
-        articles = articles.slice(0, 20);
-        activeId = item.id;
-        writeJSON(KEYS.articles, articles);
-        localStorage.setItem(KEYS.active, activeId);
-        renderActiveArticle();
-        return true;
-      }
-
-      articleEl.addEventListener('click', (event) => {
-        const span = event.target.closest('.word');
-        if (!span) return;
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed && normalizeTerm(selection.toString()).length > span.textContent.length + 1) return;
-        translate(span.dataset.word, getContext(span), span);
-      });
-
-      articleEl.addEventListener('mouseup', () => {
-        setTimeout(() => {
-          const selection = window.getSelection();
-          if (!selection || selection.isCollapsed) return;
-          const term = normalizeTerm(selection.toString());
-          if (!term || !/[A-Za-z]/.test(term)) return;
-          const anchor = selection.anchorNode;
-          if (!articleEl.contains(anchor)) return;
-          translate(term, getContext(anchor));
-        }, 0);
-      });
-
-      articleEl.addEventListener('touchend', () => {
-        setTimeout(() => {
-          const selection = window.getSelection();
-          if (!selection || selection.isCollapsed) return;
-          const term = normalizeTerm(selection.toString());
-          if (term && /[A-Za-z]/.test(term) && articleEl.contains(selection.anchorNode)) translate(term, getContext(selection.anchorNode));
-        }, 80);
-      });
-
-      $('searchForm').addEventListener('submit', (event) => {
-        event.preventDefault();
-        const term = normalizeTerm(searchInput.value);
-        if (!term) return;
-        translate(term, '');
-        searchInput.select();
-      });
-
-      speakBtn.addEventListener('click', () => {
-        if (!currentLookup || !('speechSynthesis' in window)) return;
-        speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(currentLookup.term);
-        utter.lang = 'en-US';
-        utter.rate = 0.88;
-        speechSynthesis.speak(utter);
-      });
-
-      saveBtn.addEventListener('click', toggleVocabCurrent);
-      lookupTab.addEventListener('click', () => switchTab('lookup'));
-      vocabTab.addEventListener('click', () => switchTab('vocab'));
-
-      $('clearVocab').addEventListener('click', () => {
-        if (!vocab.length) return;
-        if (confirm('确定清空整个生词本吗？')) {
-          vocab = [];
-          writeJSON(KEYS.vocab, vocab);
-          renderVocab();
-          updateSaveButton();
-        }
-      });
-
-      $('importBtn').addEventListener('click', () => openImport(false));
-      $('cancelDialog').addEventListener('click', () => dialog.close());
-      $('articleForm').addEventListener('submit', (event) => {
-        event.preventDefault();
-        if (saveArticle()) dialog.close();
-      });
-
-      articleSelect.addEventListener('change', () => {
-        activeId = articleSelect.value;
-        localStorage.setItem(KEYS.active, activeId);
-        renderActiveArticle();
-      });
-
-      $('fontDown').addEventListener('click', () => {
-        fontSize = Math.max(15, fontSize - 1);
-        document.documentElement.style.setProperty('--reader-font-size', fontSize + 'px');
-        localStorage.setItem(KEYS.font, String(fontSize));
-      });
-      $('fontUp').addEventListener('click', () => {
-        fontSize = Math.min(28, fontSize + 1);
-        document.documentElement.style.setProperty('--reader-font-size', fontSize + 'px');
-        localStorage.setItem(KEYS.font, String(fontSize));
-      });
-
-      if (articles.length && !activeArticle()) activeId = articles[0].id;
-      if (activeId) localStorage.setItem(KEYS.active, activeId);
-      renderActiveArticle();
-      renderHistory();
-      renderVocab();
-      if (!articles.length) setTimeout(() => openImport(false), 250);
-    })();
-  </script>
+  <script src="app.js"></script>
 </body>
 </html>
