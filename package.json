@@ -1,0 +1,13 @@
+{
+  "name": "cet4-reader",
+  "private": true,
+  "version": "1.1.0",
+  "scripts": {
+    "start": "node scripts/serve.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "test:browser": "node tests/browser.cjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

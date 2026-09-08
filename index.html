@@ -5,14 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="CET-4 四级精读助手：划词翻译、整句翻译、今日查词、生词本、错题分类、文章分类和阅读计时器。" />
   <title>CET-4 精读划词助手</title>
-  <link rel="stylesheet" href="styles.css" />
+  <meta name="theme-color" content="#3157d5" />
+  <link rel="stylesheet" href="styles.css?v=20260908" />
 </head>
 <body>
   <div class="app">
     <header class="topbar">
       <div class="brand">
         <div class="brand-title">CET-4 精读划词助手</div>
-        <div class="brand-sub">四/六级词典 · 上下文整句翻译 · 今日生词 · 错题复盘 · 阅读计时</div>
+        <div class="brand-sub">读懂每一句 · 记住每一个进步</div>
       </div>
 
       <div class="top-controls">
@@ -58,6 +59,11 @@
             <input id="searchInput" class="input search-input" autocomplete="off" placeholder="输入单词、短语或句子…" aria-label="查词" />
             <button class="btn primary" type="submit">查询</button>
           </form>
+          <div class="translation-options">
+            <label title="本机翻译不可用时，将把完整句子发送给在线翻译服务。关闭后可手动点击译整句。"><input id="autoTranslate" type="checkbox" checked /> 自动翻译所在句</label>
+            <button id="prepareTranslator" class="text-btn" type="button">启用本机翻译</button>
+          </div>
+          <div id="engineStatus" class="engine-status" role="status">词典释义优先 · 完整句子辅助理解</div>
         </div>
 
         <div class="tabs">
@@ -69,18 +75,21 @@
 
         <div id="sideScroll" class="side-scroll">
           <section id="lookupPanel">
-            <div class="term-label">Selected word / phrase</div>
+            <div class="term-label">单词 / 短语</div>
             <div id="term" class="term">选一个词</div>
-            <div id="translation" class="translation">中文释义会显示在这里</div>
-            <div id="status" class="status">单词优先使用四/六级词典；整句在支持的 Chrome 桌面版中优先使用浏览器内置翻译。</div>
+            <div id="translation" class="translation" aria-live="polite">点击文章中的单词，开始精读</div>
+            <div id="status" class="status">先看常用释义，再结合完整句子的译文判断本句含义。</div>
+            <button id="retryLookup" class="text-btn hidden" type="button">重新查询</button>
 
             <div id="contextCard" class="context-card hidden">
               <div class="context-label">所在句子</div>
               <div id="context" class="context"></div>
               <div id="sentenceTranslation" class="sentence-translation hidden">
-                <div class="context-label">整句翻译</div>
-                <div id="sentenceTranslationText"></div>
+                <div class="context-label">整句参考译文</div>
+                <div id="sentenceTranslationText" aria-live="polite"></div>
+                <div id="sentenceSource" class="status"></div>
               </div>
+              <div class="compare-links"><span>对照翻译</span><a id="compareBing" target="_blank" rel="noopener noreferrer">必应</a><a id="compareGoogle" target="_blank" rel="noopener noreferrer">Google</a></div>
             </div>
 
             <div class="action-row">
@@ -204,7 +213,8 @@
     </form>
   </dialog>
 
-  <script src="translation-engine.js"></script>
-  <script src="app.js"></script>
+  <script src="text-utils.js?v=20260908"></script>
+  <script src="translation-engine.js?v=20260908"></script>
+  <script src="app.js?v=20260908"></script>
 </body>
 </html>

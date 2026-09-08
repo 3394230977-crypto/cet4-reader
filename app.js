@@ -6,7 +6,7 @@
     active: 'cet4_reader_active_v2',
     vocab: 'cet4_reader_vocab_v2',
     history: 'cet4_reader_history_v2',
-    cache: 'cet4_reader_translation_cache_v2',
+    autoTranslate: 'cet4_reader_auto_translate_v4',
     font: 'cet4_reader_font_v2',
     lookupLog: 'cet4_reader_lookup_log_v3',
     mistakes: 'cet4_reader_mistakes_v3',
@@ -67,7 +67,6 @@
   let articles = readJSON(KEYS.articles, []);
   let vocab = readJSON(KEYS.vocab, []);
   let history = readJSON(KEYS.history, []);
-  let cache = readJSON(KEYS.cache, {});
   let lookupLog = readJSON(KEYS.lookupLog, []);
   let mistakes = readJSON(KEYS.mistakes, []);
   let scrolls = readJSON(KEYS.scrolls, {});
@@ -75,11 +74,21 @@
   let currentLookup = null;
   let activeWordSpan = null;
   let requestToken = 0;
+  let lookupController = null;
+  let sentenceController = null;
+  let sentenceTimer = null;
+  let sentenceRequest = 0;
   let fontSize = Number(localStorage.getItem(KEYS.font)) || 19;
   let clickTimer = null;
   let scrollSaveTimer = null;
 
-  articles = articles.map(a => ({ category: '未分类', source: '', ...a }));
+  articles = (Array.isArray(articles) ? articles : []).filter(a => a && typeof a.text === 'string').map(a => ({ category: '未分类', source: '', ...a }));
+  vocab = Array.isArray(vocab) ? vocab : [];
+  history = Array.isArray(history) ? history : [];
+  lookupLog = Array.isArray(lookupLog) ? lookupLog : [];
+  mistakes = Array.isArray(mistakes) ? mistakes : [];
+  scrolls = scrolls && typeof scrolls === 'object' && !Array.isArray(scrolls) ? scrolls : {};
+  $('autoTranslate').checked = readJSON(KEYS.autoTranslate, true) !== false;
   document.documentElement.style.setProperty('--reader-font-size', fontSize + 'px');
 
   function readJSON(key, fallback) {
@@ -90,7 +99,8 @@
   }
 
   function writeJSON(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (_) { $('engineStatus').textContent = '浏览器存储空间不足或不可用，本次更改未保存。请保留当前页面。'; return false; }
   }
 
   function uid() {
@@ -98,10 +108,7 @@
   }
 
   function normalizeTerm(value) {
-    return String(value || '')
-      .replace(/\s+/g, ' ')
-      .replace(/^[\s“”‘’'".,;:!?()\[\]{}—–-]+|[\s“”‘’'".,;:!?()\[\]{}—–-]+$/g, '')
-      .trim();
+    return window.CET4Text.normalize(value);
   }
 
   function safeText(text) { return String(text == null ? '' : text); }
@@ -113,12 +120,6 @@
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
     return `${y}-${m}-${day}`;
-  }
-
-  function decodeHtml(str) {
-    const box = document.createElement('textarea');
-    box.innerHTML = safeText(str);
-    return box.value;
   }
 
   function refreshArticleSelect() {
@@ -145,8 +146,7 @@
   }
 
   function splitSentences(text) {
-    const matches = safeText(text).match(/[^.!?]+[.!?]+(?:[”’"')\]]*)|[^.!?]+$/g);
-    return matches && matches.length ? matches : [text];
+    return window.CET4Text.splitSentences(text);
   }
 
   function renderTokenized(text, parent) {
@@ -165,6 +165,8 @@
   }
 
   function renderActiveArticle() {
+    clearTimeout(clickTimer);
+    if (currentLookup) showLookup('', '点击文章中的单词，开始精读', '常用释义与整句译文分开显示。', '', false);
     refreshArticleSelect();
     const item = activeArticle();
     articleEl.innerHTML = '';
@@ -173,7 +175,14 @@
     if (!item) {
       readerTitle.textContent = '尚未导入文章';
       readerMeta.innerHTML = '导入四级阅读后即可开始精读';
-      articleEl.innerHTML = '<div class="empty"><strong>把你的四级阅读放进来</strong>长文章只在左侧独立滚动。单击或双击词汇查词，拖选多个词查短语；右侧可翻译整句、记生词和做错题。</div>';
+      articleEl.innerHTML = '<div class="empty"><span class="empty-eyebrow">每天读懂一篇英语</span><strong>从一篇文章开始</strong><p>点击单词看释义，拖选短语查搭配。<br>结合完整句子理解，再把值得记忆的内容留下。</p><button id="emptyImport" class="btn primary" type="button">导入我的文章</button><button id="sampleArticle" class="btn" type="button">试读一篇示例</button><div class="notice">文章和学习记录保存在当前浏览器</div></div>';
+      $('emptyImport').addEventListener('click', () => openArticleDialog(false));
+      $('sampleArticle').addEventListener('click', () => {
+        openArticleDialog(false);
+        titleInput.value = '每日精读 · Small habits, lasting change';
+        sourceInput.value = '原创练习示例';
+        textInput.value = 'Small changes can make a lasting difference to the way we learn. Students often believe that progress depends on studying for hours without a break. In fact, a short period of focused practice every day may be more effective than a long session once a week.\n\nThe key is not simply to spend more time, but to pay attention to what we find difficult. When reading in English, for example, we should consider how a word is used in a sentence. A familiar word may have a different meaning in a new context. Looking up every word is less useful than understanding the main idea and returning to the important details.\n\nProgress is not always obvious from one day to the next. However, keeping a record of what we have learned can help us see how far we have come. A small habit, repeated with care, can become the foundation for lasting change.';
+      });
       return;
     }
 
@@ -218,79 +227,94 @@
     const p = el?.closest?.('p');
     if (!p) return '';
     const text = p.textContent.replace(/\s+/g, ' ').trim();
-    return text.length > 420 ? text.slice(0, 417) + '…' : text;
+    return text;
   }
 
-  function cacheKey(term) { return normalizeTerm(term).toLowerCase(); }
-
-  async function rawTranslate(term) {
-    term = normalizeTerm(term);
-    if (!term) throw new Error('empty');
-    const key = cacheKey(term);
-    if (cache[key]?.translation) return { translation: cache[key].translation, cached: true };
-    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(term) + '&langpair=en|zh-CN';
-    const response = await fetch(url, { method: 'GET' });
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    const data = await response.json();
-    let translated = data?.responseData?.translatedText ? decodeHtml(data.responseData.translatedText).trim() : '';
-    if (!translated) throw new Error('empty translation');
-    cache[key] = { translation: translated, savedAt: Date.now() };
-    const entries = Object.entries(cache);
-    if (entries.length > 1200) {
-      entries.sort((a, b) => (b[1].savedAt || 0) - (a[1].savedAt || 0));
-      cache = Object.fromEntries(entries.slice(0, 900));
-    }
-    writeJSON(KEYS.cache, cache);
-    return { translation: translated, cached: false };
+  function cancelQueries() {
+    ++requestToken;
+    ++sentenceRequest;
+    lookupController?.abort();
+    sentenceController?.abort();
+    clearTimeout(sentenceTimer);
   }
 
-  async function translateTerm(term, context = '', sourceSpan = null) {
+  async function translateTerm(term, context = '', sourceSpan = null, force = false, origin = null) {
     term = normalizeTerm(term);
     if (!term || !/[A-Za-z]/.test(term)) return;
-    if (term.length > 450) {
-      showLookup(term.slice(0, 100) + '…', '选择内容过长', '一次请选择一个单词、短语或较短句子。', context, false);
+    if (term.length > 3000) {
+      showLookup(term.slice(0, 100) + '…', '选择内容过长', '一次请选择不超过 3,000 字符的单词、短语或句子。', '', false);
       return;
     }
-
-    if (activeWordSpan && activeWordSpan !== sourceSpan) activeWordSpan.classList.remove('active');
+    showLookup(term, '正在查询…', '正在查找释义', context, false, true, origin);
     activeWordSpan = sourceSpan || null;
-    if (activeWordSpan) activeWordSpan.classList.add('active');
-
-    const myToken = ++requestToken;
-    showLookup(term, '正在查询…', '连接在线翻译服务', context, false, true);
+    activeWordSpan?.classList.add('active');
+    activeWordSpan?.closest('.sentence')?.classList.add('current-sentence');
+    const myToken = requestToken;
+    const lookup = currentLookup;
+    lookupController = new AbortController();
+    if (context && $('autoTranslate').checked && normalizeTerm(context) !== term) {
+      sentenceTimer = setTimeout(() => translateCurrentSentence(false), 250);
+    }
     try {
-      const result = await rawTranslate(term);
-      if (myToken !== requestToken) return;
-      showLookup(term, result.translation, result.cached ? '本地缓存 · 无需再次联网' : '在线翻译 · 已缓存到本机', context, true);
+      const result = await window.CET4TranslationEngine.lookup(term, { signal: lookupController.signal, force });
+      if (myToken !== requestToken || lookup !== currentLookup) return;
+      lookup.translation = result.translation;
+      lookup.engine = result.engine;
+      translationEl.textContent = result.translation;
+      statusEl.textContent = `${result.engine}${result.cached ? ' · 已缓存' : ''}${result.kind === 'dictionary' ? ' · 常用义项，请结合本句判断' : ' · 参考译文'}`;
+      saveBtn.disabled = false;
+      updateSaveButton();
+      if (context && normalizeTerm(context) === term) {
+        lookup.sentenceTranslation = result.translation;
+        lookup.sentenceEngine = result.engine;
+        renderSentenceResult(result);
+      }
       recordLookup(term, result.translation, context);
-    } catch (_) {
-      if (myToken !== requestToken) return;
-      showLookup(term, '暂时没有查到中文', '网络或翻译服务当前不可用，请稍后再试。已经查过的词仍可从本地缓存读取。', context, false);
+    } catch (error) {
+      if (myToken !== requestToken || error.name === 'AbortError') return;
+      translationEl.textContent = '暂时无法完成查询';
+      statusEl.textContent = '请重试；也可以在下方打开对照翻译。已下载的词典仍可查词。';
+    } finally {
+      if (myToken === requestToken) {
+        translationEl.classList.remove('loading');
+        $('retryLookup').classList.remove('hidden');
+      }
     }
   }
 
-  function showLookup(term, translation, status, context, canSave, loading = false) {
+  function showLookup(term, translation, status, context, canSave, loading = false, origin = null) {
+    cancelQueries();
+    activeWordSpan?.classList.remove('active');
+    activeWordSpan = null;
+    articleEl.querySelectorAll('.current-sentence').forEach(el => el.classList.remove('current-sentence'));
     switchTab('lookup');
     currentLookup = {
       term,
       translation,
       context: context || '',
-      articleId: activeArticle()?.id || '',
-      articleTitle: activeArticle()?.title || ''
+      articleId: origin ? origin.articleId || '' : activeArticle()?.id || '',
+      articleTitle: origin ? origin.articleTitle || origin.article || '' : activeArticle()?.title || ''
     };
-    termEl.textContent = term;
+    termEl.textContent = term || '选一个词';
     translationEl.textContent = translation;
     translationEl.classList.toggle('loading', loading);
     statusEl.textContent = status;
+    $('retryLookup').classList.add('hidden');
     sentenceTranslation.classList.add('hidden');
     sentenceTranslationText.textContent = '';
+    $('sentenceSource').textContent = '';
+    translateSentenceBtn.textContent = '译整句';
+    const compareText = context || term;
+    $('compareBing').href = 'https://www.bing.com/translator?from=en&to=zh-Hans&text=' + encodeURIComponent(compareText);
+    $('compareGoogle').href = 'https://translate.google.com/?sl=en&tl=zh-CN&text=' + encodeURIComponent(compareText) + '&op=translate';
+    contextCard.querySelector('.context-label').textContent = context ? '所在完整句子' : '查询原文';
     if (context) {
       contextCard.classList.remove('hidden');
       contextEl.textContent = context;
       translateSentenceBtn.disabled = false;
     } else {
-      contextCard.classList.add('hidden');
-      contextEl.textContent = '';
+      contextCard.classList.toggle('hidden', !term);
+      contextEl.textContent = term;
       translateSentenceBtn.disabled = true;
     }
     speakBtn.disabled = !term || !/[A-Za-z]/.test(term);
@@ -302,10 +326,11 @@
 
   function recordLookup(term, translation, context) {
     const now = Date.now();
+    const entry = { ...currentLookup, term, translation, context: context || '', time: now, article: currentLookup?.articleTitle || '' };
     history = history.filter(x => safeText(x.term).toLowerCase() !== term.toLowerCase());
-    history.unshift({ term, translation, context: context || '', time: now, article: activeArticle()?.title || '' });
+    history.unshift(entry);
     history = history.slice(0, 20);
-    lookupLog.unshift({ term, translation, context: context || '', time: now, articleId: activeArticle()?.id || '', article: activeArticle()?.title || '' });
+    lookupLog.unshift({ ...entry });
     lookupLog = lookupLog.slice(0, 1200);
     writeJSON(KEYS.history, history);
     writeJSON(KEYS.lookupLog, lookupLog);
@@ -335,7 +360,20 @@
     meta.className = 'card-meta';
     meta.textContent = item.article ? `${label} · ${item.article}` : label;
     card.append(en, zh, meta);
-    card.addEventListener('click', () => showLookup(item.term, item.translation, label, item.context || '', true));
+    card.tabIndex = 0;
+    card.setAttribute('role', 'button');
+    const open = () => {
+      showLookup(item.term, item.translation, `${label}${item.engine ? ' · ' + item.engine : ''}`, item.context || '', true, false, item);
+      currentLookup.engine = item.engine || '';
+      $('retryLookup').classList.remove('hidden');
+      if (item.sentenceTranslation) {
+        currentLookup.sentenceTranslation = item.sentenceTranslation;
+        currentLookup.sentenceEngine = item.sentenceEngine || '';
+        renderSentenceResult({ translation: item.sentenceTranslation, engine: item.sentenceEngine || '已保存译文' });
+      }
+    };
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); } });
     return card;
   }
 
@@ -376,7 +414,7 @@
     const key = currentLookup.term.toLowerCase();
     const idx = vocab.findIndex(x => safeText(x.term).toLowerCase() === key);
     if (idx >= 0) vocab.splice(idx, 1);
-    else vocab.unshift({ ...currentLookup, time: Date.now(), article: activeArticle()?.title || '' });
+    else vocab.unshift({ ...currentLookup, time: Date.now(), article: currentLookup.articleTitle || '' });
     writeJSON(KEYS.vocab, vocab);
     renderVocab();
     updateSaveButton();
@@ -400,28 +438,65 @@
     });
   }
 
-  async function translateCurrentSentence() {
-    const sentence = normalizeTerm(currentLookup?.context || '');
+  function renderSentenceResult(result) {
+    sentenceTranslation.classList.remove('hidden');
+    sentenceTranslationText.textContent = result.translation;
+    $('sentenceSource').textContent = `${result.engine || '参考译文'}${result.cached ? ' · 已缓存' : ''}`;
+  }
+
+  async function translateCurrentSentence(force = false) {
+    const lookup = currentLookup;
+    const sentence = normalizeTerm(lookup?.context || '');
     if (!sentence) return;
+    clearTimeout(sentenceTimer);
+    sentenceController?.abort();
+    const controller = new AbortController();
+    sentenceController = controller;
+    const sentenceId = ++sentenceRequest;
+    const token = requestToken;
+    const stillCurrent = () => token === requestToken && sentenceId === sentenceRequest && lookup === currentLookup;
     translateSentenceBtn.disabled = true;
     translateSentenceBtn.textContent = '翻译中…';
     sentenceTranslation.classList.remove('hidden');
     sentenceTranslationText.textContent = '正在翻译整句…';
+    $('sentenceSource').textContent = '保留完整原句、标点和数字';
     try {
-      const result = await rawTranslate(sentence);
-      sentenceTranslationText.textContent = result.translation;
-      if (currentLookup) currentLookup.sentenceTranslation = result.translation;
-    } catch (_) {
-      sentenceTranslationText.textContent = '整句翻译暂时不可用，请稍后重试。';
+      const result = await window.CET4TranslationEngine.translate(sentence, { signal: controller.signal, force });
+      if (!stillCurrent()) return;
+      lookup.sentenceTranslation = result.translation;
+      lookup.sentenceEngine = result.engine;
+      renderSentenceResult(result);
+      for (const [list, key] of [[history, KEYS.history], [lookupLog, KEYS.lookupLog], [vocab, KEYS.vocab]]) {
+        let changed = false;
+        for (const item of list) {
+          if (item.term === lookup.term && item.context === lookup.context && item.articleId === lookup.articleId) {
+            item.sentenceTranslation = result.translation;
+            item.sentenceEngine = result.engine;
+            changed = true;
+          }
+        }
+        if (changed) writeJSON(key, list);
+      }
+    } catch (error) {
+      if (!stillCurrent() || error.name === 'AbortError') return;
+      if (lookup.sentenceTranslation) {
+        renderSentenceResult({ translation: lookup.sentenceTranslation, engine: lookup.sentenceEngine });
+        $('sentenceSource').textContent += ' · 本次重译失败，保留上次译文';
+      } else {
+        sentenceTranslationText.textContent = '暂时无法翻译本句，请重试或使用下方对照翻译。';
+        $('sentenceSource').textContent = '本机模型或在线服务当前不可用';
+      }
     } finally {
-      translateSentenceBtn.disabled = false;
-      translateSentenceBtn.textContent = '译整句';
+      if (stillCurrent()) {
+        translateSentenceBtn.disabled = false;
+        translateSentenceBtn.textContent = lookup.sentenceTranslation ? '重新译整句' : '重试整句';
+      }
     }
   }
 
   function selectedReaderText() {
     const selection = window.getSelection();
-    if (!selection || selection.isCollapsed || !articleEl.contains(selection.anchorNode)) return '';
+    if (!selection || selection.isCollapsed || !articleEl.contains(selection.anchorNode) || !articleEl.contains(selection.focusNode)) return '';
     return normalizeTerm(selection.toString());
   }
 
@@ -432,6 +507,10 @@
       return;
     }
     mistakeTextInput.value = text;
+    const origin = currentLookup && (text === currentLookup.context || text === currentLookup.term) ? currentLookup : null;
+    mistakeForm.dataset.articleId = origin ? origin.articleId : activeArticle()?.id || '';
+    mistakeForm.dataset.articleTitle = origin ? origin.articleTitle : activeArticle()?.title || '';
+    mistakeForm.dataset.translation = origin?.context === text ? origin.sentenceTranslation || '' : '';
     mistakeCategoryInput.value = '长难句';
     mistakeNoteInput.value = '';
     mistakeDialog.showModal();
@@ -441,21 +520,25 @@
   function saveMistake() {
     const text = normalizeTerm(mistakeTextInput.value);
     if (!text) return false;
-    const item = activeArticle();
-    const existing = mistakes.find(m => m.articleId === (item?.id || '') && normalizeTerm(m.text) === text);
+    const originId = mistakeForm.dataset.articleId || '';
+    const completedTranslation = currentLookup?.articleId === originId && currentLookup?.context === text
+      ? currentLookup.sentenceTranslation || mistakeForm.dataset.translation || ''
+      : mistakeForm.dataset.translation || '';
+    const existing = mistakes.find(m => m.articleId === originId && normalizeTerm(m.text) === text);
     if (existing) {
       existing.category = mistakeCategoryInput.value;
       existing.note = mistakeNoteInput.value.trim();
       existing.updatedAt = Date.now();
+      if (completedTranslation) existing.translation = completedTranslation;
     } else {
       mistakes.unshift({
         id: uid(),
         text,
         category: mistakeCategoryInput.value,
         note: mistakeNoteInput.value.trim(),
-        translation: currentLookup?.context && normalizeTerm(currentLookup.context) === text ? (currentLookup.sentenceTranslation || '') : '',
-        articleId: item?.id || '',
-        articleTitle: item?.title || '',
+        translation: completedTranslation,
+        articleId: originId,
+        articleTitle: mistakeForm.dataset.articleTitle || '',
         createdAt: Date.now()
       });
     }
@@ -505,7 +588,13 @@
       });
       meta.append(tag, source, del);
       card.append(title, sub, meta);
-      card.addEventListener('click', () => showLookup(item.text, item.translation || '已记录为错题/难句', `错题本 · ${item.category}`, item.text, false));
+      card.addEventListener('click', () => {
+        showLookup(item.text, item.note || '已记录为错题/难句', `错题本 · ${item.category}`, item.text, false, false, item);
+        if (item.translation) {
+          currentLookup.sentenceTranslation = item.translation;
+          renderSentenceResult({ translation: item.translation, engine: '已保存译文' });
+        }
+      });
       mistakeList.appendChild(card);
     }
   }
@@ -564,6 +653,7 @@
   articleEl.addEventListener('click', event => {
     const span = event.target.closest('.word');
     if (!span) return;
+    window.CET4TranslationEngine.prepare();
     const selection = window.getSelection();
     if (selection && !selection.isCollapsed && normalizeTerm(selection.toString()).length > span.textContent.length + 1) return;
     clearTimeout(clickTimer);
@@ -573,27 +663,34 @@
   articleEl.addEventListener('dblclick', event => {
     const span = event.target.closest('.word');
     if (!span) return;
+    window.CET4TranslationEngine.prepare();
     clearTimeout(clickTimer);
     translateTerm(span.dataset.word, getContext(span), span);
   });
 
+  function querySelection() {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !articleEl.contains(selection.anchorNode) || !articleEl.contains(selection.focusNode)) return;
+    const term = normalizeTerm(selection.toString());
+    if (!term || !/[A-Za-z]/.test(term) || !/\s/.test(term)) return;
+    clearTimeout(clickTimer);
+    const range = selection.getRangeAt(0);
+    const sentences = [...articleEl.querySelectorAll('.sentence')].filter(el => range.intersectsNode(el));
+    const context = normalizeTerm(sentences.map(el => el.dataset.sentence).join(' '));
+    if (currentLookup?.term === term && currentLookup?.context === context) return;
+    translateTerm(term, context);
+  }
+
   articleEl.addEventListener('mouseup', () => {
+    window.CET4TranslationEngine.prepare();
     setTimeout(() => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || !articleEl.contains(selection.anchorNode)) return;
-      const term = normalizeTerm(selection.toString());
-      if (!term || !/[A-Za-z]/.test(term)) return;
-      if ((term.match(/\s+/g) || []).length >= 1) translateTerm(term, getContext(selection.anchorNode));
+      querySelection();
     }, 0);
   });
 
   articleEl.addEventListener('touchend', () => {
-    setTimeout(() => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || !articleEl.contains(selection.anchorNode)) return;
-      const term = normalizeTerm(selection.toString());
-      if (term && /[A-Za-z]/.test(term)) translateTerm(term, getContext(selection.anchorNode));
-    }, 100);
+    window.CET4TranslationEngine.prepare();
+    setTimeout(querySelection, 100);
   });
 
   readerScroll.addEventListener('scroll', () => {
@@ -607,9 +704,10 @@
 
   $('searchForm').addEventListener('submit', event => {
     event.preventDefault();
+    window.CET4TranslationEngine.prepare();
     const term = normalizeTerm(searchInput.value);
     if (!term) return;
-    translateTerm(term, '');
+    translateTerm(term, '', null, false, { articleId: '', articleTitle: '' });
     searchInput.select();
   });
 
@@ -623,7 +721,44 @@
   });
 
   saveBtn.addEventListener('click', toggleVocabCurrent);
-  translateSentenceBtn.addEventListener('click', translateCurrentSentence);
+  translateSentenceBtn.addEventListener('click', () => {
+    window.CET4TranslationEngine.prepare();
+    translateCurrentSentence(true);
+  });
+  $('retryLookup').addEventListener('click', () => {
+    if (!currentLookup?.term) return;
+    window.CET4TranslationEngine.prepare();
+    translateTerm(currentLookup.term, currentLookup.context, activeWordSpan, true, currentLookup);
+  });
+  $('autoTranslate').addEventListener('change', () => {
+    writeJSON(KEYS.autoTranslate, $('autoTranslate').checked);
+    if ($('autoTranslate').checked) {
+      window.CET4TranslationEngine.prepare();
+      translateCurrentSentence(false);
+    } else {
+      clearTimeout(sentenceTimer);
+      ++sentenceRequest;
+      sentenceController?.abort();
+      translateSentenceBtn.disabled = !currentLookup?.context;
+      translateSentenceBtn.textContent = '译整句';
+      if (!currentLookup?.sentenceTranslation) sentenceTranslation.classList.add('hidden');
+    }
+  });
+  $('prepareTranslator').addEventListener('click', () => window.CET4TranslationEngine.prepare());
+  window.addEventListener('cet4-engine-status', event => {
+    const detail = event.detail;
+    const messages = {
+      unavailable: '本机翻译暂不可用，将尝试在线翻译',
+      preparing: '正在准备本机翻译，首次使用可能需要下载模型',
+      downloading: `正在下载本机翻译模型 ${Math.round((detail?.progress || 0) * 100)}%`,
+      ready: '本机翻译已就绪 · 整句可在浏览器中翻译'
+    };
+    $('engineStatus').textContent = typeof detail === 'string' ? detail : detail?.message || messages[detail?.status] || '词典释义优先 · 完整句子辅助理解';
+    if (detail?.status === 'ready') {
+      $('prepareTranslator').textContent = '本机翻译已启用';
+      $('prepareTranslator').disabled = true;
+    }
+  });
   markMistakeBtn.addEventListener('click', () => openMistakeDialog());
   $('markReaderBtn').addEventListener('click', () => openMistakeDialog());
 
@@ -664,6 +799,7 @@
   });
 
   articleSelect.addEventListener('change', () => {
+    clearTimeout(scrollSaveTimer);
     if (activeId) {
       scrolls[activeId] = readerScroll.scrollTop;
       writeJSON(KEYS.scrolls, scrolls);
@@ -756,5 +892,9 @@
   renderVocab();
   renderMistakes();
   renderTimer();
-  if (!articles.length) setTimeout(() => openArticleDialog(false), 250);
+  if (!('Translator' in window)) {
+    $('prepareTranslator').classList.add('hidden');
+    $('engineStatus').textContent = '词典在本机查询 · 句译使用在线服务';
+  }
+  window.CET4TranslationEngine.dictionaryReady().catch(() => {});
 })();

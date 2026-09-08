@@ -1,22 +1,12 @@
 (() => {
   'use strict';
 
+  const VERSION = '2026.09.08-accuracy-v4';
+  const CACHE_KEY = 'cet4_reader_engine_cache_v4';
+  const CACHE_LIMIT = 300;
+  const CACHE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
+  const MAX_TEXT_LENGTH = 6000;
   const nativeFetch = window.fetch.bind(window);
-  const VERSION = '2026.09-context-accuracy-v3';
-
-  const SOURCES = [
-    { file: 'PETS_3.json', label: '基础学习词典', rank: 0 },
-    { file: 'CET4_T.json', label: 'CET-4', rank: 1 },
-    { file: 'CET6_T.json', label: 'CET-6', rank: 2 },
-    { file: 'NCE_3.json', label: '综合英语词典', rank: 3 },
-    { file: 'GaoKao_3500.json', label: '高频基础词', rank: 4 },
-    { file: 'raz-L.json', label: '扩展常用词典', rank: 5 },
-    { file: '2024HongBao_T2.json', label: '扩展词义', rank: 6 }
-  ];
-
-  const RAW_ROOT = 'https://raw.githubusercontent.com/RealKai42/qwerty-learner/master/public/dicts/';
-  const CDN_ROOT = 'https://cdn.jsdelivr.net/gh/RealKai42/qwerty-learner@master/public/dicts/';
-
   const LINGVA_INSTANCES = [
     'https://translate.plausibility.cloud',
     'https://lingva.lunar.icu',
@@ -24,9 +14,8 @@
     'https://translate.jae.fi'
   ];
 
-  // Small same-page safety net for very common CET reading words. This prevents a basic
-  // word from becoming unqueryable just because a remote dictionary/CDN is unavailable.
-  const BASIC = {
+  // Safety net when the same-origin dictionary cannot be loaded.
+const BASIC = {
     human: { phone: 'ˈhjuːmən', meanings: ['adj. 人的；人类的', 'n. 人；人类'] },
     nature: { phone: 'ˈneɪtʃər', meanings: ['n. 自然；大自然；本性'] },
     natural: { phone: 'ˈnætʃrəl', meanings: ['adj. 自然的；天然的；正常的'] },
@@ -78,335 +67,527 @@
     movement: { phone: 'ˈmuːvmənt', meanings: ['n. 运动；活动；动作'] }
   };
 
-  const sourcePromises = new Map();
-  let chromeTranslatorPromise = null;
-  let lastAutoToken = 0;
-  let lastPhraseToken = 0;
-  const CONTEXT_CACHE_KEY = 'cet4_reader_context_cache_v5';
-  let contextCache = readJSON(CONTEXT_CACHE_KEY, {});
+  const PHRASES = Object.freeze({
+    'as a result': '因此；结果',
+    'as a result of': '由于；作为……的结果',
+    'in terms of': '就……而言；在……方面',
+    'in spite of': '尽管；不顾',
+    'rather than': '而不是；与其……不如……',
+    'instead of': '代替；而不是',
+    'due to': '由于；因为',
+    'owing to': '由于；因为',
+    'according to': '根据；按照',
+    'in addition to': '除……之外（还）',
+    'in addition': '此外；而且',
+    'for instance': '例如',
+    'for example': '例如',
+    'on the other hand': '另一方面',
+    'on the contrary': '相反',
+    'in contrast': '相比之下',
+    'in particular': '尤其；特别',
+    'in general': '一般来说；总体上',
+    'take into account': '考虑到；把……纳入考虑',
+    'take advantage of': '利用（机会、条件等）；占……的便宜',
+    'play a role in': '在……中起作用',
+    'be likely to': '很可能……',
+    'be responsible for': '对……负责；是……的原因',
+    'be aware of': '意识到；知道',
+    'keep in mind': '记住；牢记',
+    'make a difference': '产生影响；起作用',
+    'a wide range of': '各种各样的；范围广泛的',
+    'with regard to': '关于；就……而言',
+    'regardless of': '不管；不顾',
+    'by no means': '绝不；一点也不',
+    'no longer': '不再',
+    'in the long run': '从长远来看'
+  });
 
-  function readJSON(key, fallback) {
-    try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : fallback; }
-    catch (_) { return fallback; }
+  const FORM_NOTES = Object.freeze({
+    saw: '也可作 see（看见）的过去式；需结合原句判断。',
+    axes: '可作 axis（轴；轴线）或 axe / ax（斧）的复数；需结合原句判断。',
+    does: '通常是 do 的第三人称单数；也可为 doe（雌鹿等）的复数。',
+    left: '也可作 leave（离开；留下）的过去式或过去分词。',
+    found: '也可作 find（发现）的过去式或过去分词。',
+    lay: '也可作 lie（躺）的过去式；需结合原句判断。'
+  });
+  const ACRONYMS = Object.freeze({
+    US: 'abbr. 美国（United States）；注意与代词 us（我们）的宾格区分。',
+    USA: 'abbr. 美利坚合众国；美国（United States of America）。',
+    UK: 'abbr. 英国；联合王国（United Kingdom）。',
+    EU: 'abbr. 欧洲联盟；欧盟（European Union）。',
+    UN: 'abbr. 联合国（United Nations）。',
+    GDP: 'abbr. 国内生产总值（Gross Domestic Product）。',
+    AI: 'abbr. 人工智能（Artificial Intelligence）。',
+    IT: 'abbr. 信息技术（Information Technology）；注意与代词 it（它）区分。'
+  });
+  const AMBIGUOUS_FORMS = {
+    saw: { trans: ['n. 锯；v. 锯', 'v. see（看见）的过去式'] },
+    axes: { trans: ['n. axis（轴；轴线）的复数', 'n. axe / ax（斧）的复数'] },
+    does: { trans: ['v. do 的第三人称单数', 'n. doe（雌鹿等）的复数'] }
+  };
+  const IRREGULAR = Object.freeze({
+    am:'be', is:'be', are:'be', was:'be', were:'be', been:'be', being:'be',
+    has:'have', had:'have', did:'do', done:'do',
+    went:'go', gone:'go', came:'come', made:'make', took:'take', taken:'take',
+    thought:'think', felt:'feel', knew:'know', known:'know', gave:'give', given:'give',
+    seen:'see', wrote:'write', written:'write', grew:'grow', grown:'grow', ran:'run',
+    began:'begin', begun:'begin', brought:'bring', bought:'buy', caught:'catch',
+    taught:'teach', held:'hold', kept:'keep', lost:'lose', paid:'pay', said:'say',
+    told:'tell', became:'become', built:'build', chose:'choose', chosen:'choose',
+    drove:'drive', driven:'drive', children:'child', men:'man', women:'woman',
+    mice:'mouse', feet:'foot', teeth:'tooth', geese:'goose',
+    dying:'die', lying:'lie', tying:'tie', leaves:'leaf', lives:'life',
+    wives:'wife', knives:'knife', wolves:'wolf', shelves:'shelf', halves:'half'
+  });
+
+  let dictionary = null;
+  let dictionaryPromise = null;
+  let dictionaryFailedAt = 0;
+  let translator = null;
+  let creation = null;
+  let lingvaCursor = 0;
+  const pending = new Map();
+  const cache = new Map();
+
+  function fail(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    if (code === 'ABORTED') error.name = 'AbortError';
+    return error;
   }
-  function writeJSON(key, value) {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch (_) {}
+  function abortReason(signal) {
+    return signal?.reason?.code && typeof signal.reason.code === 'string'
+      ? signal.reason : fail('ABORTED', '查询已取消。');
   }
-  function normalizeText(value) { return String(value || '').replace(/\s+/g, ' ').trim(); }
-  function cleanWord(value) { return normalizeText(value).toLowerCase().replace(/^[^a-z'-]+|[^a-z'-]+$/g, ''); }
-  function isSingleWord(value) { return /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(normalizeText(value)); }
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-  function withTimeout(promise, ms) {
-    return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+  function assertActive(signal) {
+    if (signal?.aborted) throw abortReason(signal);
   }
-
-  function lemmaCandidates(word) {
-    const w = cleanWord(word);
-    const out = [w];
-    const irregular = {
-      went:'go', gone:'go', came:'come', made:'make', took:'take', taken:'take', thought:'think', found:'find',
-      felt:'feel', knew:'know', known:'know', gave:'give', given:'give', saw:'see', seen:'see', wrote:'write',
-      written:'write', grew:'grow', grown:'grow', ran:'run', began:'begin', begun:'begin', brought:'bring', bought:'buy',
-      caught:'catch', taught:'teach', left:'leave', held:'hold', kept:'keep', lost:'lose', paid:'pay', said:'say', told:'tell',
-      became:'become', built:'build', chose:'choose', chosen:'choose', drove:'drive', driven:'drive', children:'child',
-      people:'person', men:'man', women:'woman', mice:'mouse', feet:'foot', teeth:'tooth', geese:'goose'
-    };
-    if (irregular[w]) out.push(irregular[w]);
-    if (w.endsWith('ies') && w.length > 4) out.push(w.slice(0,-3)+'y');
-    if (w.endsWith('ves') && w.length > 4) { out.push(w.slice(0,-3)+'f'); out.push(w.slice(0,-3)+'fe'); }
-    if (w.endsWith('es') && w.length > 4) { out.push(w.slice(0,-2)); out.push(w.slice(0,-1)); }
-    if (w.endsWith('s') && w.length > 3) out.push(w.slice(0,-1));
-    if (w.endsWith('ied') && w.length > 4) out.push(w.slice(0,-3)+'y');
-    if (w.endsWith('ing') && w.length > 5) {
-      const stem=w.slice(0,-3); out.push(stem,stem+'e');
-      if (/([b-df-hj-np-tv-z])\1$/.test(stem)) out.push(stem.slice(0,-1));
-    }
-    if (w.endsWith('ed') && w.length > 4) {
-      const stem=w.slice(0,-2); out.push(stem,stem+'e');
-      if (/([b-df-hj-np-tv-z])\1$/.test(stem)) out.push(stem.slice(0,-1));
-    }
-    return [...new Set(out.filter(Boolean))];
+  function normalize(value) {
+    return String(value ?? '').replace(/\s+/g, ' ').trim();
   }
-
-  function tidyMeaning(v) {
-    return String(v||'').replace(/\r?\n+/g,'；').replace(/\s+/g,' ').replace(/；{2,}/g,'；').replace(/^[-•]\s*/,'').trim();
+  function inputText(value) {
+    const text = normalize(value);
+    if (!text) throw fail('EMPTY_INPUT', '请先输入英文单词、短语或句子。');
+    if (text.length > MAX_TEXT_LENGTH) throw fail('TEXT_TOO_LONG', '请将选中的文本控制在 6000 个字符以内。');
+    return text;
   }
-
-  async function fetchJsonWithMirror(file) {
-    const urls = [RAW_ROOT + file, CDN_ROOT + file];
-    for (const url of urls) {
-      try {
-        const res = await withTimeout(nativeFetch(url, { cache:'force-cache', mode:'cors' }), 6000);
-        if (!res.ok) continue;
-        const data = await res.json();
-        if (Array.isArray(data) && data.length) return data;
-      } catch (_) {}
-    }
-    return [];
+  function wordKey(value) {
+    return normalize(value).toLowerCase().replace(/’/g, "'");
   }
-
-  async function loadSource(source) {
-    if (sourcePromises.has(source.file)) return sourcePromises.get(source.file);
-    const p = (async () => {
-      const list = await fetchJsonWithMirror(source.file);
-      const map = new Map();
-      for (const item of list) {
-        const key = cleanWord(item?.name);
-        const trans = Array.isArray(item?.trans) ? item.trans.map(tidyMeaning).filter(Boolean) : [];
-        if (!key || !trans.length) continue;
-        map.set(key, { trans, usphone:item.usphone||'', ukphone:item.ukphone||'' });
-      }
-      return map;
-    })();
-    sourcePromises.set(source.file, p);
-    return p;
+  function isWord(value) {
+    return /^[A-Za-z]+(?:['’-][A-Za-z]+)*$/.test(value);
   }
-
-  function formatEntry(word, candidate, phone, meanings, sourceLabel, multi=false) {
-    const lines=[];
-    if (candidate !== cleanWord(word)) lines.push(`原形：${candidate}`);
-    if (phone) lines.push(`音标：/${phone}/`);
-    lines.push(`常用义：${meanings.slice(0,5).join('；')}`);
-    lines.push(`来源：${sourceLabel}${multi?' + 多词库校对':''}`);
-    return lines.join('\n');
+  function validTranslation(value, original) {
+    if (typeof value !== 'string') return false;
+    const result = normalize(value);
+    return result.length > 0
+      && result.length <= Math.max(1600, original.length * 8)
+      && /[\u3400-\u9fff]/.test(result)
+      && result.toLowerCase() !== normalize(original).toLowerCase()
+      && !/<\s*\/?\s*[a-z!][^>]*>/i.test(result)
+      && !/\b(?:502 bad gateway|503 service unavailable|504 gateway time.?out|too many requests|rate limit(?:ed| exceeded)?|access denied|captcha|cloudflare|invalid api key)\b/i.test(result)
+      && !/^(?:error\b|translation (?:failed|error)|翻译(?:失败|出错)|请求(?:失败|过于频繁)|服务(?:不可用|繁忙)|访问被拒绝)/i.test(result);
   }
-
-  async function dictionaryLookup(word) {
-    const candidates = lemmaCandidates(word);
-
-    // Same-page safety net first: instant and immune to network/CDN failures.
-    for (const candidate of candidates) {
-      const item = BASIC[candidate];
-      if (item) return formatEntry(word,candidate,item.phone,item.meanings,'本地高频词典');
-    }
-
-    // Load the broad/common dictionaries first; they cover normal reading vocabulary better
-    // than a pure CET list. Continue to exam/extended dictionaries only if necessary.
-    const firstWave = SOURCES.slice(0,4);
-    const firstMaps = await Promise.all(firstWave.map(loadSource));
-    for (const candidate of candidates) {
-      const hits=[];
-      firstMaps.forEach((map,i)=>{ const item=map.get(candidate); if(item) hits.push({item,source:firstWave[i]}); });
-      if (hits.length) {
-        const meanings=[]; let phone='';
-        hits.sort((a,b)=>a.source.rank-b.source.rank).forEach(h=>{
-          if(!phone) phone=h.item.usphone||h.item.ukphone||'';
-          h.item.trans.forEach(m=>{ if(!meanings.includes(m)) meanings.push(m); });
-        });
-        return formatEntry(word,candidate,phone,meanings,hits[0].source.label,hits.length>1);
-      }
-    }
-
-    for (const source of SOURCES.slice(4)) {
-      const map=await loadSource(source);
-      for (const candidate of candidates) {
-        const item=map.get(candidate);
-        if(item) return formatEntry(word,candidate,item.usphone||item.ukphone||'',item.trans,source.label);
-      }
-    }
-    return '';
-  }
-
-  function armChromeTranslator() {
-    if (!('Translator' in self) || chromeTranslatorPromise) return;
-    // Call create() directly while the click/pointer user activation is still alive.
+  function status(state, extra = {}) {
     try {
-      chromeTranslatorPromise = Translator.create({ sourceLanguage:'en', targetLanguage:'zh' }).catch(()=>null);
-    } catch (_) { chromeTranslatorPromise = Promise.resolve(null); }
+      window.dispatchEvent(new CustomEvent('cet4-engine-status', {
+        detail: { status: state, engine: 'Chrome 内置翻译', ...extra }
+      }));
+    } catch (_) { /* Status reporting must never interrupt a lookup. */ }
   }
 
-  async function getChromeTranslator() {
-    if (!('Translator' in self)) return null;
-    if (!chromeTranslatorPromise) {
+  // Bound the fetch and body read, aborting the underlying operation on expiry.
+  function bounded(operation, timeout, parentSignal) {
+    return new Promise((resolve, reject) => {
+      const controller = new AbortController();
+      let timer;
+      let settled = false;
+      function finish(error, value) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        parentSignal?.removeEventListener('abort', cancel);
+        controller.signal.removeEventListener('abort', aborted);
+        if (error) reject(error);
+        else resolve(value);
+      }
+      function cancel() { controller.abort(abortReason(parentSignal)); }
+      function aborted() { finish(abortReason(controller.signal)); }
+      controller.signal.addEventListener('abort', aborted, { once: true });
+      if (parentSignal?.aborted) { cancel(); return; }
+      parentSignal?.addEventListener('abort', cancel, { once: true });
+      timer = setTimeout(() => controller.abort(fail('TIMEOUT', '翻译服务响应超时，请重试。')), timeout);
       try {
-        const availability=await Translator.availability({sourceLanguage:'en',targetLanguage:'zh'});
-        if(availability==='unavailable') return null;
-        chromeTranslatorPromise=Translator.create({sourceLanguage:'en',targetLanguage:'zh'}).catch(()=>null);
-      } catch (_) { return null; }
-    }
-    return chromeTranslatorPromise;
-  }
-
-  async function chromeTranslate(text) {
-    const translator=await getChromeTranslator();
-    if(!translator) return '';
-    try { return normalizeText(await translator.translate(text)); }
-    catch (_) { return ''; }
-  }
-
-  async function lingvaTranslate(text) {
-    const q=normalizeText(text).replace(/[\/\\]+/g,' ');
-    if(!q) return '';
-    for(const base of LINGVA_INSTANCES){
-      try{
-        const res=await withTimeout(nativeFetch(`${base}/api/v1/en/zh/${encodeURIComponent(q)}`,{cache:'no-store',mode:'cors'}),4500);
-        if(!res.ok) continue;
-        const data=await res.json();
-        const translated=normalizeText(data?.translation||'');
-        if(translated && translated.toLowerCase()!==q.toLowerCase()) return translated;
-      }catch(_){}
-    }
-    return '';
-  }
-
-  async function highQualityTranslate(text, retries=1) {
-    text=normalizeText(text);
-    if(!text) return {translation:'',engine:'none'};
-    for(let attempt=0;attempt<=retries;attempt++){
-      const chrome=await chromeTranslate(text);
-      if(chrome) return {translation:chrome,engine:'Chrome 内置翻译'};
-      const lingva=await lingvaTranslate(text);
-      if(lingva) return {translation:lingva,engine:'Lingva / Google Translate'};
-      if(attempt<retries) await sleep(450);
-    }
-    return {translation:'',engine:'unavailable'};
-  }
-
-  function fakeTranslationResponse(text,engine){
-    return new Response(JSON.stringify({responseData:{translatedText:text},responseStatus:200,cet4Engine:engine}),{
-      status:200,headers:{'Content-Type':'application/json; charset=utf-8','X-CET4-Translation-Engine':engine}
+        Promise.resolve(operation(controller.signal)).then(
+          value => finish(null, value), error => finish(error)
+        );
+      } catch (error) { finish(error); }
     });
   }
 
-  function extractMyMemoryQuery(input){
-    try{
-      const url=typeof input==='string'?new URL(input,location.href):new URL(input.url,location.href);
-      if(url.hostname!=='api.mymemory.translated.net'||!url.pathname.includes('/get')) return null;
-      return url.searchParams.get('q')||'';
-    }catch(_){return null;}
+  // Only stop this caller waiting; shared downloads and subscribers continue.
+  function waitFor(promise, signal) {
+    if (!signal) return promise;
+    return new Promise((resolve, reject) => {
+      function cancel() {
+        signal.removeEventListener('abort', cancel);
+        reject(abortReason(signal));
+      }
+      if (signal.aborted) { cancel(); return; }
+      signal.addEventListener('abort', cancel, { once: true });
+      promise.then(value => {
+        signal.removeEventListener('abort', cancel);
+        resolve(value);
+      }, error => {
+        signal.removeEventListener('abort', cancel);
+        reject(error);
+      });
+    });
   }
 
-  // Drop old poor results once after this upgrade. Other study data stays untouched.
-  try{
-    const k='cet4_translation_accuracy_upgrade_20260907_v3';
-    if(!localStorage.getItem(k)){
-      localStorage.removeItem('cet4_reader_translation_cache_v2');
-      localStorage.removeItem('cet4_reader_context_cache_v4');
-      localStorage.setItem(k,'1');
+  function loadDictionary(force = false) {
+    if (dictionary) return Promise.resolve(dictionary);
+    if (dictionaryPromise) return dictionaryPromise;
+    if (!force && dictionaryFailedAt && Date.now() - dictionaryFailedAt < 10000) {
+      return Promise.resolve(null);
     }
-  }catch(_){}
+    dictionaryPromise = bounded(async signal => {
+      const response = await nativeFetch('data/dictionary.json', {
+        signal, cache: force ? 'reload' : 'default', credentials: 'same-origin'
+      });
+      if (!response.ok) throw fail('DICTIONARY_UNAVAILABLE', '本地词典暂时无法加载。');
+      const entries = await response.json();
+      if (!entries || typeof entries !== 'object' || Array.isArray(entries)) {
+        throw fail('DICTIONARY_INVALID', '词典文件格式有误。');
+      }
+      const map = new Map();
+      for (const [rawKey, item] of Object.entries(entries)) {
+        if (!item || !Array.isArray(item.trans)) continue;
+        const trans = [...new Set(item.trans.filter(value => typeof value === 'string')
+          .map(normalize).filter(value => value && /[\u3400-\u9fff]/.test(value)))];
+        if (!trans.length) continue;
+        map.set(wordKey(rawKey), {
+          trans,
+          usphone: typeof item.usphone === 'string' ? item.usphone : '',
+          ukphone: typeof item.ukphone === 'string' ? item.ukphone : ''
+        });
+      }
+      if (!map.size) throw fail('DICTIONARY_INVALID', '词典文件为空。');
+      return map;
+    }, 5000).then(map => {
+      dictionary = map;
+      dictionaryFailedAt = 0;
+      return map;
+    }, () => {
+      dictionaryFailedAt = Date.now();
+      return null;
+    }).finally(() => { dictionaryPromise = null; });
+    return dictionaryPromise;
+  }
 
-  window.fetch=async function(input,init){
-    const q=extractMyMemoryQuery(input);
-    if(q==null) return nativeFetch(input,init);
-    const text=normalizeText(q);
-    if(!text) return nativeFetch(input,init);
-
-    if(isSingleWord(text)){
-      const dictionaryResult=await dictionaryLookup(text);
-      if(dictionaryResult) return fakeTranslationResponse(dictionaryResult,'学习词典');
+  function basicEntry(key) {
+    if (Object.hasOwn(AMBIGUOUS_FORMS, key)) return AMBIGUOUS_FORMS[key];
+    if (!Object.hasOwn(BASIC, key)) return null;
+    return { trans: BASIC[key].meanings, usphone: BASIC[key].phone };
+  }
+  function entryFor(map, key) {
+    const full = map?.get(key);
+    if (full) return { entry: full, source: 'ECDICT 学习词典' };
+    const basic = basicEntry(key);
+    return basic ? { entry: basic, source: '内置基础词典' } : null;
+  }
+  function inflections(word) {
+    if (['news', 'series', 'species', 'means', 'physics', 'economics', 'mathematics', 'headquarters'].includes(word)) return [];
+    const out = [];
+    if (Object.hasOwn(IRREGULAR, word)) out.push(IRREGULAR[word]);
+    if (word.endsWith("'s") && word.length > 3) out.push(word.slice(0, -2));
+    if (/ies$/.test(word) && word.length > 4) out.push(word.slice(0, -3) + 'y');
+    if (/s$/.test(word) && word.length > 3 && !/(ss|us|is)$/.test(word)) {
+      out.push(word.slice(0, -1));
+      if (/(?:s|x|z|ch|sh)es$/.test(word)) out.push(word.slice(0, -2));
     }
-
-    const result=await highQualityTranslate(text,2);
-    if(result.translation) return fakeTranslationResponse(result.translation,result.engine);
-    throw new Error('No high-quality translation engine is available.');
-  };
-
-  function getSentenceFromTarget(target){
-    const word=target?.closest?.('.word');
-    const sentence=word?.closest?.('.sentence');
-    return normalizeText(sentence?.dataset?.sentence||sentence?.textContent||'');
-  }
-
-  function getPhraseFromTarget(target){
-    const word=target?.closest?.('.word');
-    const sentence=word?.closest?.('.sentence');
-    if(!word||!sentence) return '';
-    const words=[...sentence.querySelectorAll('.word')];
-    const index=words.indexOf(word);
-    if(index<0) return '';
-    const start=Math.max(0,index-2), end=Math.min(words.length,index+4);
-    const phrase=words.slice(start,end).map(x=>x.textContent).join(' ');
-    return normalizeText(phrase);
-  }
-
-  function ensurePhraseBox(){
-    const card=document.getElementById('contextCard');
-    if(!card) return null;
-    let box=document.getElementById('contextPhraseTranslation');
-    if(box) return box;
-    box=document.createElement('div');
-    box.id='contextPhraseTranslation';
-    box.className='context-phrase-translation hidden';
-    const label=document.createElement('div');
-    label.className='context-label'; label.textContent='上下文短语';
-    const en=document.createElement('div'); en.id='contextPhraseEn'; en.className='context-phrase-en';
-    const zh=document.createElement('div'); zh.id='contextPhraseZh'; en.after();
-    box.append(label,en,zh);
-    const sentenceBox=document.getElementById('sentenceTranslation');
-    card.insertBefore(box,sentenceBox||null);
-    return box;
-  }
-
-  async function autoTranslatePhrase(phrase){
-    phrase=normalizeText(phrase);
-    if(!phrase||phrase.split(' ').length<2) return;
-    const token=++lastPhraseToken;
-    await sleep(220);
-    if(token!==lastPhraseToken) return;
-    const box=ensurePhraseBox(); if(!box) return;
-    const en=document.getElementById('contextPhraseEn');
-    const zh=document.getElementById('contextPhraseZh');
-    en.textContent=phrase; zh.textContent='正在翻译上下文短语…'; box.classList.remove('hidden');
-    const result=await highQualityTranslate(phrase,1);
-    if(token!==lastPhraseToken) return;
-    if(result.translation){ zh.textContent=result.translation; zh.title=`翻译引擎：${result.engine}`; }
-    else { box.classList.add('hidden'); }
-  }
-
-  async function autoTranslateSentence(sentence){
-    sentence=normalizeText(sentence);
-    if(!sentence||sentence.length<2) return;
-    const box=document.getElementById('sentenceTranslation');
-    const textEl=document.getElementById('sentenceTranslationText');
-    if(!box||!textEl) return;
-    const key=sentence.toLowerCase(); const token=++lastAutoToken;
-    await sleep(300); if(token!==lastAutoToken) return;
-    if(contextCache[key]?.translation){
-      textEl.textContent=contextCache[key].translation; textEl.title=`翻译引擎：${contextCache[key].engine||'缓存'}`; box.classList.remove('hidden'); return;
+    if (/ied$/.test(word) && word.length > 4) out.push(word.slice(0, -3) + 'y');
+    if (/(?:ing|ed)$/.test(word) && word.length > 4) {
+      const stem = word.replace(/(?:ing|ed)$/, '');
+      if (stem.length > 2) {
+        out.push(stem + 'e');
+        // A one-vowel CVC verb normally doubles its consonant: hop -> hopped,
+        // not hoped; car must not become a candidate for caring.
+        if (!/^[^aeiou]*[aeiou][bdgmnprt]$/.test(stem)) out.push(stem);
+        if (/([bdglmnprt])\1$/.test(stem)) out.push(stem.slice(0, -1));
+      }
     }
-    textEl.textContent='正在结合上下文翻译本句…'; box.classList.remove('hidden');
-    const result=await highQualityTranslate(sentence,2); if(token!==lastAutoToken) return;
-    if(result.translation){
-      textEl.textContent=result.translation; textEl.title=`翻译引擎：${result.engine}`;
-      contextCache[key]={translation:result.translation,engine:result.engine,savedAt:Date.now()};
-      const entries=Object.entries(contextCache).sort((a,b)=>(b[1].savedAt||0)-(a[1].savedAt||0));
-      if(entries.length>500) contextCache=Object.fromEntries(entries.slice(0,380));
-      writeJSON(CONTEXT_CACHE_KEY,contextCache);
-    }else{
-      textEl.textContent='当前没有可用的高质量整句翻译引擎。'; textEl.title='';
-    }
+    return [...new Set(out)].filter(candidate => candidate !== word);
+  }
+  function formatEntry(requested, headword, hit) {
+    const { entry, source } = hit;
+    const lines = [];
+    if (requested !== headword) lines.push('词形还原：' + headword + '（常用义，需结合原句判断）');
+    if (entry.ukphone) lines.push('英 /' + entry.ukphone.replace(/^\/|\/$/g, '') + '/');
+    if (entry.usphone) lines.push('美 /' + entry.usphone.replace(/^\/|\/$/g, '') + '/');
+    lines.push('常用义：' + entry.trans.join('；'));
+    if (Object.hasOwn(FORM_NOTES, requested)) lines.push('词形提示：' + FORM_NOTES[requested]);
+    return { translation: lines.join('\n'), engine: source, kind: 'dictionary', headword };
+  }
+  async function dictionaryLookup(text, options) {
+    const map = await waitFor(loadDictionary(options.force), options.signal);
+    assertActive(options.signal);
+    const word = wordKey(text);
+    const exact = entryFor(map, word);
+    if (exact) return formatEntry(word, word, exact);
+    const hits = inflections(word).map(candidate => ({
+      candidate, hit: entryFor(map, candidate)
+    })).filter(item => {
+      if (!item.hit) return false;
+      if (!/(?:ing|ed)$/.test(word)) return true;
+      const meanings = item.hit.entry.trans.join(' ');
+      // A documented noun-only entry is not a base verb for -ed / -ing.
+      return /(?:\bvi?\.?t?\.|\bvt\.|动词|动\.)/.test(meanings)
+        || !/(?:\bn\.|\ba(?:dj)?\.|名词|形容词)/.test(meanings);
+    });
+    if (!hits.length) return null;
+    if (hits.length === 1) return formatEntry(word, hits[0].candidate, hits[0].hit);
+    // Ambiguous spellings must not silently choose a different word's meaning.
+    return {
+      translation: '可能的原形（需结合原句判断）：\n' + hits.map(({ candidate, hit }) =>
+        candidate + '：' + hit.entry.trans.join('；')).join('\n'),
+      engine: [...new Set(hits.map(item => item.hit.source))].join(' / '),
+      kind: 'dictionary'
+    };
   }
 
-  // Arm Chrome's model at the earliest point of a real user gesture.
-  document.addEventListener('pointerdown',e=>{
-    if(e.target?.closest?.('.word')||e.target?.closest?.('#searchForm')||e.target?.closest?.('#translateSentenceBtn')) armChromeTranslator();
-  },true);
+  // Call from a click or keyboard submit before awaiting any other work.
+  // Official API: https://developer.chrome.com/docs/ai/translator-api
+  function prepare() {
+    if (translator) return Promise.resolve(true);
+    if (creation) return creation.promise;
+    if (!window.Translator || typeof window.Translator.create !== 'function') {
+      status('unavailable');
+      return Promise.resolve(false);
+    }
+    const attempt = {};
+    creation = attempt;
+    status('preparing');
+    attempt.promise = bounded(async signal => {
+      // bounded invokes this synchronously, preserving user activation.
+      const ready = await window.Translator.create({
+        sourceLanguage: 'en',
+        targetLanguage: 'zh',
+        signal,
+        monitor(monitor) {
+          monitor.addEventListener('downloadprogress', event => {
+            if (creation !== attempt || signal.aborted) return;
+            const progress = Math.max(0, Math.min(1, Number(event.loaded) || 0));
+            status('downloading', { progress });
+          });
+        }
+      });
+      if (signal.aborted) {
+        try { ready.destroy?.(); } catch (_) {}
+        throw abortReason(signal);
+      }
+      return ready;
+    }, 120000).then(ready => {
+      translator = ready;
+      status('ready');
+      return true;
+    }, error => {
+      status(error.code === 'TIMEOUT' ? 'timeout' : 'unavailable', {
+        message: error.code === 'TIMEOUT'
+          ? '浏览器翻译模型准备超时，可再次点击重试。'
+          : '浏览器翻译暂不可用，将尝试在线翻译。'
+      });
+      return false;
+    }).finally(() => {
+      if (creation === attempt) creation = null;
+    });
+    return attempt.promise;
+  }
 
-  document.addEventListener('click',event=>{
-    const sentence=getSentenceFromTarget(event.target); if(sentence) autoTranslateSentence(sentence);
-    const phrase=getPhraseFromTarget(event.target); if(phrase) autoTranslatePhrase(phrase);
+  async function chromeTranslate(text, signal) {
+    if (!translator && creation) {
+      try {
+        // Downloading a model never holds a sentence request indefinitely.
+        await bounded(() => creation.promise, 1000, signal);
+      } catch (_) { assertActive(signal); }
+    }
+    if (!translator) return null;
+    try {
+      const translation = normalize(await bounded(
+        innerSignal => translator.translate(text, { signal: innerSignal }), 4500, signal
+      ));
+      if (validTranslation(translation, text)) {
+        return { translation, engine: 'Chrome 内置翻译' };
+      }
+    } catch (_) { assertActive(signal); }
+    return null;
+  }
+
+  async function requestLingva(base, text, signal) {
+    return bounded(async innerSignal => {
+      const response = await nativeFetch(base + '/api/v1/en/zh/' + encodeURIComponent(text), {
+        signal: innerSignal, cache: 'no-store', mode: 'cors', credentials: 'omit'
+      });
+      if (!response.ok) throw fail('PROVIDER_HTTP', '在线翻译服务暂时不可用。');
+      const data = await response.json();
+      if (data?.error || !validTranslation(data?.translation, text)) {
+        throw fail('INVALID_TRANSLATION', '翻译服务没有返回有效的中文译文。');
+      }
+      return { translation: normalize(data.translation), engine: 'Lingva（' + new URL(base).hostname + '）' };
+    }, 3500, signal);
+  }
+  async function googleTranslate(text, signal) {
+    // Public web-client endpoint; availability is not guaranteed. Never retry a
+    // rate-limited response automatically or treat service messages as a result.
+    return bounded(async innerSignal => {
+      const response = await nativeFetch(
+        'https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=zh-CN&dt=t&q=' + encodeURIComponent(text),
+        { signal: innerSignal, cache: 'no-store', mode: 'cors', credentials: 'omit' }
+      );
+      if (!response.ok) throw fail('PROVIDER_HTTP', '在线翻译服务暂时不可用。');
+      const data = await response.json();
+      const segments = data?.[0];
+      if (!Array.isArray(segments) || !segments.length || segments.some(segment =>
+        !Array.isArray(segment) || typeof segment[0] !== 'string'
+        || typeof segment[1] !== 'string' || !segment[0].trim()
+      )) throw fail('INVALID_TRANSLATION', '翻译服务返回的数据不完整。');
+      if (normalize(segments.map(segment => segment[1]).join('')) !== text) {
+        throw fail('INVALID_TRANSLATION', '翻译服务未返回完整原文对应的译文。');
+      }
+      const translation = normalize(segments.map(segment => segment[0]).join(''));
+      if (!validTranslation(translation, text)) throw fail('INVALID_TRANSLATION', '未获得有效的中文译文。');
+      return { translation, engine: 'Google 在线翻译' };
+    }, 5000, signal);
+  }
+  async function lingvaTranslate(text, signal) {
+    // Use two fallback hosts per request; a user retry tries the other pair.
+    const index = lingvaCursor;
+    lingvaCursor = (lingvaCursor + 2) % LINGVA_INSTANCES.length;
+    {
+      assertActive(signal);
+      const group = new AbortController();
+      const cancel = () => group.abort(abortReason(signal));
+      signal.addEventListener('abort', cancel, { once: true });
+      try {
+        // The first valid result wins; failed responses cannot enter the cache.
+        return await Promise.any(LINGVA_INSTANCES.slice(index, index + 2)
+          .map(base => requestLingva(base, text, group.signal)));
+      } catch (_) {
+        assertActive(signal);
+      } finally {
+        signal.removeEventListener('abort', cancel);
+        group.abort(fail('ABORTED', '备用请求已结束。'));
+      }
+    }
+    throw fail('TRANSLATION_UNAVAILABLE', '当前翻译服务暂不可用，请稍后重试。词典查询仍可使用。');
+  }
+  async function runTranslation(text, signal) {
+    const chrome = await chromeTranslate(text, signal);
+    assertActive(signal);
+    if (chrome) return chrome;
+    try { return await googleTranslate(text, signal); }
+    catch (_) { assertActive(signal); }
+    return lingvaTranslate(text, signal);
+  }
+
+  function sourceKnown(engine) {
+    return engine === 'Chrome 内置翻译' || engine === 'Google 在线翻译'
+      || LINGVA_INSTANCES.some(base => engine === 'Lingva（' + new URL(base).hostname + '）');
+  }
+  function restoreCache() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
+      if (stored?.version !== VERSION || !Array.isArray(stored.entries)) return;
+      for (const entry of stored.entries.slice(-CACHE_LIMIT)) {
+        if (typeof entry?.text !== 'string' || !sourceKnown(entry.engine)
+          || !validTranslation(entry.translation, entry.text)
+          || !Number.isFinite(entry.savedAt) || entry.savedAt > Date.now()
+          || Date.now() - entry.savedAt > CACHE_MAX_AGE) continue;
+        cache.set(entry.text, entry);
+      }
+    } catch (_) { /* Private mode and full storage do not prevent translation. */ }
+  }
+  function saveCache(text, result) {
+    cache.delete(text);
+    cache.set(text, { text, ...result, savedAt: Date.now() });
+    while (cache.size > CACHE_LIMIT) cache.delete(cache.keys().next().value);
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ version: VERSION, entries: [...cache.values()] }));
+    } catch (_) {}
+  }
+  function subscribe(task, signal) {
+    task.subscribers += 1;
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      function finish(error, value) {
+        if (finished) return;
+        finished = true;
+        signal?.removeEventListener('abort', cancel);
+        task.subscribers -= 1;
+        if (!task.settled && task.subscribers === 0) task.controller.abort(fail('ABORTED', '查询已取消。'));
+        if (error) reject(error);
+        else resolve({ ...value });
+      }
+      function cancel() { finish(abortReason(signal)); }
+      if (signal?.aborted) { cancel(); return; }
+      signal?.addEventListener('abort', cancel, { once: true });
+      task.promise.then(value => finish(null, value), error => finish(error));
+    });
+  }
+
+  async function translate(value, { signal, force = false } = {}) {
+    assertActive(signal);
+    const text = inputText(value); // Preserve case: "US" and "us" differ.
+    const existing = cache.get(text);
+    if (!force && existing && Date.now() - existing.savedAt <= CACHE_MAX_AGE) {
+      return { translation: existing.translation, engine: existing.engine, cached: true };
+    }
+    let task = pending.get(text);
+    if (!task || task.controller.signal.aborted) {
+      task = { controller: new AbortController(), subscribers: 0, settled: false };
+      pending.set(text, task);
+      task.promise = Promise.resolve().then(() =>
+        bounded(innerSignal => runTranslation(text, innerSignal), 15000, task.controller.signal)
+      ).then(result => {
+        assertActive(task.controller.signal);
+        if (!validTranslation(result?.translation, text)) throw fail('INVALID_TRANSLATION', '未获得有效的中文译文。');
+        saveCache(text, result);
+        return { ...result, cached: false };
+      }).finally(() => {
+        task.settled = true;
+        if (pending.get(text) === task) pending.delete(text);
+      });
+    }
+    return subscribe(task, signal);
+  }
+
+  async function lookup(value, { signal, force = false } = {}) {
+    assertActive(signal);
+    const text = inputText(value);
+    if (Object.hasOwn(ACRONYMS, text)) {
+      return { translation: '常用义：' + ACRONYMS[text] + '\n具体含义需结合完整句子判断。', engine: '内置缩写词典', kind: 'dictionary', headword: text };
+    }
+    if (isWord(text)) {
+      const hit = await dictionaryLookup(text, { signal, force });
+      if (hit) return hit;
+    } else {
+      const phrase = PHRASES[wordKey(text)];
+      if (typeof phrase === 'string') {
+        return { translation: '常用义：' + phrase + '\n具体含义需结合完整句子判断。', engine: '内置常用搭配', kind: 'phrase' };
+      }
+    }
+    return { ...await translate(text, { signal, force }), kind: 'translation' };
+  }
+
+  restoreCache();
+  window.CET4TranslationEngine = Object.freeze({
+    version: VERSION,
+    prepare,
+    lookup,
+    translate,
+    dictionaryReady: async () => {
+      const map = await loadDictionary();
+      return map ? map.size : Object.keys(BASIC).length + Object.keys(AMBIGUOUS_FORMS).length;
+    }
   });
-  document.addEventListener('dblclick',event=>{
-    const sentence=getSentenceFromTarget(event.target); if(sentence) autoTranslateSentence(sentence);
-    const phrase=getPhraseFromTarget(event.target); if(phrase) autoTranslatePhrase(phrase);
-  });
-
-  const style=document.createElement('style');
-  style.textContent=`
-    .translation{white-space:pre-line}
-    .sentence-translation{white-space:normal}
-    .sentence-translation #sentenceTranslationText{line-height:1.75}
-    .context-phrase-translation{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
-    .context-phrase-en{margin-top:6px;font-family:Georgia,"Times New Roman",serif;font-size:13px;line-height:1.55;color:var(--muted)}
-    #contextPhraseZh{margin-top:5px;font-size:14px;line-height:1.65;color:var(--text)}
-  `;
-  document.head.appendChild(style);
-
-  window.CET4TranslationEngine={
-    dictionaryReady:async()=>{const maps=await Promise.all(SOURCES.slice(0,4).map(loadSource));return maps.reduce((n,m)=>n+m.size,Object.keys(BASIC).length);},
-    hasChromeTranslator:()=>('Translator' in self),
-    translate:highQualityTranslate,
-    version:VERSION
-  };
 })();
